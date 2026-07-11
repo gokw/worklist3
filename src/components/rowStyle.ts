@@ -1,18 +1,32 @@
 // ==============================================================
 // 行・カードの色分けルール(表とカードで共通)
-//   優先度: 完了(グレー) > 期限切れ(赤) > 期限当日(黄) > 進行中(緑) > 中断中(橙)
+//   優先度: 完了(グレー) > 期限切れ(赤) > 期限当日(黄) > 進行中(緑) > 待ち(紫)
 // ==============================================================
-import type { Task } from "../types";
-import { isDueToday, isOverdue } from "../lib/logic";
+import type { DerivedStatus, Task } from "../types";
+import { derivedStatus, isDueToday, isOverdue } from "../lib/logic";
 
 export function taskBgClass(task: Task): string {
-  if (task.status === "done") return "bg-gray-100 text-gray-400";
+  const st = derivedStatus(task);
+  if (st === "done") return "bg-gray-100 text-gray-400";
   if (isOverdue(task)) return "bg-red-100";
   if (isDueToday(task)) return "bg-yellow-100";
-  if (task.status === "inProgress") return "bg-green-100";
-  if (task.status === "suspended") return "bg-orange-50";
-  if (task.status === "waiting") return "bg-purple-50";
+  if (st === "running") return "bg-green-100";
+  if (st === "waiting") return "bg-purple-50";
   return "bg-white";
+}
+
+/** ステータスバッジの色(表・カード共通) */
+export function statusBadgeClass(st: DerivedStatus): string {
+  switch (st) {
+    case "running":
+      return "bg-green-600 text-white";
+    case "waiting":
+      return "bg-purple-600 text-white";
+    case "done":
+      return "bg-gray-400 text-white";
+    case "notStarted":
+      return "bg-gray-200 text-gray-600";
+  }
 }
 
 export function importanceBadgeClass(imp: Task["importance"]): string {

@@ -2,17 +2,23 @@
 // 表形式ビュー(Excel版 worklist の列構成を踏襲)
 // ==============================================================
 import type { Task } from "../types";
-import { ALL_STATUSES, REPEAT_UNIT_LABELS, STATUS_LABELS } from "../types";
+import { DERIVED_STATUS_LABELS, REPEAT_UNIT_LABELS } from "../types";
 import { formatDateJa } from "../lib/date";
-import { actMin, planEnd, remainMin } from "../lib/logic";
+import { actMin, derivedStatus, planEnd, remainMin } from "../lib/logic";
 import TaskActions, { type TaskActionHandlers } from "./TaskActions";
-import { deadlineTextClass, importanceBadgeClass, taskBgClass } from "./rowStyle";
+import {
+  deadlineTextClass,
+  importanceBadgeClass,
+  statusBadgeClass,
+  taskBgClass,
+} from "./rowStyle";
 
 interface Props extends TaskActionHandlers {
   tasks: Task[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
-  onStatusChange: (task: Task, status: Task["status"]) => void;
+  /** 待ちフラグのトグル(完了タスクは待ちタスクとして複製) */
+  onToggleWait: (task: Task) => void;
   /** キーボードカーソル位置のタスクID */
   focusedId: string | null;
   onFocusTask: (id: string) => void;
@@ -36,7 +42,7 @@ export default function TaskTable({
   tasks,
   selectedIds,
   onToggleSelect,
-  onStatusChange,
+  onToggleWait,
   focusedId,
   onFocusTask,
   ...handlers
@@ -95,21 +101,21 @@ export default function TaskTable({
                 </td>
                 <td className={td}>{t.date ? formatDateJa(t.date) : "毎日"}</td>
                 <td className={td}>
-                  <select
-                    className="rounded border border-gray-300 bg-white px-1 py-0.5 text-xs text-gray-800"
-                    value={t.status}
-                    onChange={(e) => onStatusChange(t, e.target.value as Task["status"])}
+                  <button
+                    className={`rounded px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(derivedStatus(t))}`}
+                    title={
+                      t.actEnd
+                        ? "クリックで待ちタスクとして複製(Wキー)"
+                        : "クリックで待ちON/OFF(Wキー)"
+                    }
+                    onClick={() => onToggleWait(t)}
                   >
-                    {ALL_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {STATUS_LABELS[s]}
-                      </option>
-                    ))}
-                  </select>
+                    {DERIVED_STATUS_LABELS[derivedStatus(t)]}
+                  </button>
                 </td>
                 <td className={`${td} text-xs text-gray-500`}>{repeatLabel(t)}</td>
                 <td className={`${td} max-w-xs whitespace-normal`}>
-                  <span className={t.status === "done" ? "line-through" : ""}>
+                  <span className={t.actEnd ? "line-through" : ""}>
                     {t.parentId && <span className="text-gray-400">└ </span>}
                     {t.title}
                   </span>

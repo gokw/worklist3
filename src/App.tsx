@@ -9,12 +9,14 @@ import {
   actMin,
   createPrepTask,
   createTask,
+  createWaitCopy,
+  derivedStatus,
   endTask,
   interruptTask,
   remainMin,
   setSequentialStart,
-  splitTask,
   startTask,
+  toggleWaiting,
 } from "./lib/logic";
 import { parseClipboardText } from "./lib/clipboard";
 import { sortTasks } from "./lib/sort";
@@ -24,7 +26,6 @@ import TaskTable from "./components/TaskTable";
 import TaskCards from "./components/TaskCards";
 import TaskForm from "./components/TaskForm";
 import InterruptDialog from "./components/InterruptDialog";
-import SplitDialog from "./components/SplitDialog";
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => repository.load());
@@ -43,7 +44,6 @@ export default function App() {
   const [formTask, setFormTask] = useState<Task | null>(null);
   const [formIsNew, setFormIsNew] = useState(true);
   const [interruptTarget, setInterruptTarget] = useState<Task | null>(null);
-  const [splitTarget, setSplitTarget] = useState<Task | null>(null);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -86,7 +86,7 @@ export default function App() {
       list = list.filter((t) => t.date === selectedDate && !!t.planStart);
     }
     if (categoryFilter) list = list.filter((t) => t.category === categoryFilter);
-    if (!showDone) list = list.filter((t) => t.status !== "done");
+    if (!showDone) list = list.filter((t) => !t.actEnd);
     return sortTasks(list);
   }, [tasks, viewMode, selectedDate, categoryFilter, showDone]);
 
@@ -99,9 +99,9 @@ export default function App() {
   const totals = useMemo(() => {
     const dayTasks = tasks.filter((t) => !t.date || t.date === selectedDate);
     return {
-      estimate: dayTasks.filter((t) => t.status !== "done").reduce((s, t) => s + t.estimateMin, 0),
+      estimate: dayTasks.filter((t) => !t.actEnd).reduce((s, t) => s + t.estimateMin, 0),
       actual: dayTasks.reduce((s, t) => s + (actMin(t) ?? 0), 0),
-      remain: dayTasks.reduce((s, t) => s + (t.status === "done" ? 0 : remainMin(t)), 0),
+      remain: dayTasks.reduce((s, t) => s + remainMin(t), 0),
     };
   }, [tasks, selectedDate]);
 
@@ -170,28 +170,25 @@ export default function App() {
     [upsert, showToast]
   );
 
-  const handleSplitConfirm = useCallback(
-    (children: { title: string; estimateMin: number }[]) => {
-      if (!splitTarget) return;
-      upsert(splitTask(splitTarget, children));
-      setSplitTarget(null);
-      showToast(`${children.length}件の子タスクに分割しました`);
-    },
-    [splitTarget, upsert, showToast]
-  );
-
-  const handleStatusChange = useCallback(
-    (task: Task, status: Task["status"]) => {
-      let updated: Task = { ...task, status, updatedAt: new Date().toISOString() };
-      // ステータス直接変更でも実績を最低限整合させる
-      if (status === "inProgress" && !task.actStart) updated = startTask(task);
-      if (status === "done" && !task.actEnd && task.actStart) {
-        handleEnd(task);
-        return;
+  /**
+   * 待ちトグル(Excel版 WaitTask 踏襲):
+   *   未完了タスク → 待ちフラグのON/OFF
+   *   完了タスク   → 待ちタスクとして複製(見積0・実績クリア)
+   */
+  const handleToggleWait = useCallback(
+    (task: Task) => {
+      if (task.actEnd) {
+        const copy = createWaitCopy(task);
+        upsert([copy]);
+        setFocusedId(copy.id);
+        showToast(`待ちタスクとして複製: ${task.title}`);
+      } else {
+        const updated = toggleWaiting(task);
+        upsert([updated]);
+        showToast(updated.waiting ? `待ちON: ${task.title}` : `待ちOFF: ${task.title}`);
       }
-      upsert([updated]);
     },
-    [upsert, handleEnd]
+    [upsert, showToast]
   );
 
   // クリップボード取込(Excel版 UnifiedInsertTask 踏襲)
@@ -212,14 +209,13 @@ export default function App() {
     }
   }, [showToast]);
 
-  // ランダム開始(Excel版 StartRandomTodayTask 踏襲)
+  // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスクは対象外
   const handleRandomStart = useCallback(() => {
     const candidates = tasks.filter(
       (t) =>
         (!t.date || t.date === selectedDate) &&
         !t.planStart &&
-        !t.actStart &&
-        t.status === "notStarted"
+        derivedStatus(t) === "notStarted"
     );
     if (candidates.length === 0) {
       showToast("該当するタスクが見つかりませんでした");
@@ -284,7 +280,7 @@ export default function App() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       // ボタン上のEnter/Spaceはボタン自体の動作を優先(二重発火防止)
       if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
-      if (formTask || interruptTarget || splitTarget) return;
+      if (formTask || interruptTarget) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -322,8 +318,13 @@ export default function App() {
           if (!focused) break;
           e.preventDefault();
           if (running) showToast("既に実行中です(E=終了 / I=中断)");
-          else if (focused.status === "done") showToast("完了済みのタスクです");
+          else if (focused.actEnd) showToast("完了済みのタスクです(W=待ちタスクとして複製)");
           else handleStart(focused);
+          break;
+        case "w": // 待ちトグル/待ちタスク複製(Excel版 WaitTask)
+          if (!focused) break;
+          e.preventDefault();
+          handleToggleWait(focused);
           break;
         case "e": // 終了(Excel版 EndTask)
           if (!focused) break;
@@ -378,7 +379,6 @@ export default function App() {
   }, [
     formTask,
     interruptTarget,
-    splitTarget,
     openNewForm,
     handleClipboardImport,
     selectedDate,
@@ -387,6 +387,7 @@ export default function App() {
     moveFocus,
     handleStart,
     handleEnd,
+    handleToggleWait,
     openEditForm,
     toggleSelect,
     remove,
@@ -399,7 +400,6 @@ export default function App() {
     onEnd: handleEnd,
     onInterrupt: setInterruptTarget,
     onPrep: handlePrep,
-    onSplit: setSplitTarget,
     onEdit: openEditForm,
   };
 
@@ -432,7 +432,7 @@ export default function App() {
             tasks={visibleTasks}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
-            onStatusChange={handleStatusChange}
+            onToggleWait={handleToggleWait}
             focusedId={focusedId}
             onFocusTask={setFocusedId}
             {...actionHandlers}
@@ -441,6 +441,7 @@ export default function App() {
           <TaskCards
             tasks={visibleTasks}
             selectedIds={selectedIds}
+            onToggleWait={handleToggleWait}
             focusedId={focusedId}
             onFocusTask={setFocusedId}
             {...actionHandlers}
@@ -449,7 +450,8 @@ export default function App() {
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
           <kbd>↑</kbd><kbd>↓</kbd> タスク選択 / <kbd>S</kbd> 開始・再開 / <kbd>E</kbd> 終了 /{" "}
-          <kbd>I</kbd> 中断 / <kbd>Enter</kbd> 編集 / <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
+          <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ちON/OFF(完了タスクは待ちとして複製) /{" "}
+          <kbd>Enter</kbd> 編集 / <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
           <br />
           <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 / <kbd>T</kbd> 表⇔カード切替 /{" "}
           <kbd>←</kbd><kbd>→</kbd> 日付移動
@@ -480,13 +482,6 @@ export default function App() {
           task={interruptTarget}
           onConfirm={handleInterruptConfirm}
           onClose={() => setInterruptTarget(null)}
-        />
-      )}
-      {splitTarget && (
-        <SplitDialog
-          task={splitTarget}
-          onConfirm={handleSplitConfirm}
-          onClose={() => setSplitTarget(null)}
         />
       )}
 

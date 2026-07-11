@@ -8,7 +8,6 @@ export interface TaskActionHandlers {
   onEnd: (task: Task) => void;
   onInterrupt: (task: Task) => void;
   onPrep: (task: Task) => void;
-  onSplit: (task: Task) => void;
   onEdit: (task: Task) => void;
 }
 
@@ -25,21 +24,20 @@ export default function TaskActions({
   onEnd,
   onInterrupt,
   onPrep,
-  onSplit,
   onEdit,
 }: Props) {
   const running = !!task.actStart && !task.actEnd;
-  const done = task.status === "done";
+  const done = !!task.actEnd;
 
   return (
     <span className="inline-flex flex-wrap items-center gap-1">
       {!running && !done && (
         <button
           className={`${btn} border-green-300 bg-green-50 text-green-700 hover:bg-green-100`}
-          title={task.status === "suspended" ? "再開する" : "開始する"}
+          title="開始する(Sキー)"
           onClick={() => onStart(task)}
         >
-          ▶ {task.status === "suspended" ? "再開" : "開始"}
+          ▶ 開始
         </button>
       )}
       {running && (
@@ -61,22 +59,13 @@ export default function TaskActions({
         </>
       )}
       {!done && (
-        <>
-          <button
-            className={`${btn} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`}
-            title="準備タスクを追加"
-            onClick={() => onPrep(task)}
-          >
-            準備
-          </button>
-          <button
-            className={`${btn} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`}
-            title="複数の子タスクに分割"
-            onClick={() => onSplit(task)}
-          >
-            分割
-          </button>
-        </>
+        <button
+          className={`${btn} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`}
+          title="準備タスクを追加"
+          onClick={() => onPrep(task)}
+        >
+          準備
+        </button>
       )}
       <button
         className={`${btn} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`}
