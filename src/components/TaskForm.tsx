@@ -109,32 +109,47 @@ export default function TaskForm({
           <p className="mt-0.5 text-[11px] text-gray-400">Ctrl+Enter で保存</p>
         </div>
 
-        {/* 仕事/個人(ビュー切替用。カテゴリとは別の軸) */}
-        <div className="mb-3">
-          <label className={labelCls}>仕事 / 個人</label>
-          <div className="flex gap-1">
-            {(["work", "personal"] as TaskScope[]).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => set("scope", s)}
-                className={`rounded px-4 py-1 text-sm font-semibold ${
-                  draft.scope === s
-                    ? s === "work"
-                      ? "bg-blue-600 text-white"
-                      : "bg-emerald-600 text-white"
-                    : "border border-gray-300 bg-white text-gray-500 hover:bg-gray-100"
-                }`}
-              >
-                {s === "work" ? "💼 " : "🏠 "}
-                {SCOPE_LABELS[s]}
-              </button>
-            ))}
+        {/* トグル類: 仕事/個人 と 待ち */}
+        <div className="mb-4 flex flex-wrap items-end gap-x-8 gap-y-3">
+          <div>
+            <label className={labelCls}>仕事 / 個人</label>
+            <div className="flex gap-1">
+              {(["work", "personal"] as TaskScope[]).map((s) => (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => set("scope", s)}
+                  className={`rounded px-4 py-1.5 text-sm font-semibold ${
+                    draft.scope === s
+                      ? s === "work"
+                        ? "bg-blue-600 text-white"
+                        : "bg-emerald-600 text-white"
+                      : "border border-gray-300 bg-white text-gray-500 hover:bg-gray-100"
+                  }`}
+                >
+                  {s === "work" ? "💼 " : "🏠 "}
+                  {SCOPE_LABELS[s]}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className={labelCls}>待ち</label>
+            <label className="flex h-[34px] items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={draft.waiting}
+                onChange={(e) => set("waiting", e.target.checked)}
+              />
+              待ち(他の人待ち等)
+            </label>
           </div>
         </div>
 
-        <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div>
+        {/* 基本情報 */}
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="col-span-2">
             <label className={labelCls}>カテゴリ(分類・集計用)</label>
             <input
               className={inputCls}
@@ -166,17 +181,6 @@ export default function TaskForm({
             </select>
           </div>
           <div>
-            <label className={labelCls}>待ち</label>
-            <label className="flex h-[26px] items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={draft.waiting}
-                onChange={(e) => set("waiting", e.target.checked)}
-              />
-              待ち(他の人待ち等)
-            </label>
-          </div>
-          <div>
             <label className={labelCls}>見積時間(分)</label>
             <input
               type="number"
@@ -188,37 +192,45 @@ export default function TaskForm({
           </div>
         </div>
 
-        {/* 日時と期限(別概念) */}
-        <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div>
-            <label className={labelCls}>日付(いつやるか)</label>
-            <input
-              type="date"
-              className={inputCls}
-              value={draft.date ?? ""}
-              onChange={(e) => set("date", e.target.value || undefined)}
-            />
-            <p className="mt-0.5 text-[11px] text-gray-400">空=毎日の一覧に表示</p>
+        {/* 予定(いつやるか・いつまでに) */}
+        <fieldset className="mb-4 rounded-lg border border-gray-200 p-3">
+          <legend className="px-1 text-xs font-semibold text-gray-500">予定</legend>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div>
+              <label className={labelCls}>日付(いつやるか)</label>
+              <input
+                type="date"
+                className={inputCls}
+                value={draft.date ?? ""}
+                onChange={(e) => set("date", e.target.value || undefined)}
+              />
+              <p className="mt-0.5 text-[11px] text-gray-400">空=毎日の一覧に表示</p>
+            </div>
+            <div>
+              <label className={labelCls}>開始予定時刻</label>
+              <input
+                type="time"
+                className={inputCls}
+                value={draft.planStart ?? ""}
+                onChange={(e) => set("planStart", e.target.value || undefined)}
+              />
+            </div>
+            <div>
+              <label className={labelCls}>期限(いつまでに)</label>
+              <input
+                type="date"
+                className={inputCls}
+                value={draft.deadline ?? ""}
+                onChange={(e) => set("deadline", e.target.value || undefined)}
+              />
+            </div>
           </div>
-          <div>
-            <label className={labelCls}>開始予定時刻</label>
-            <input
-              type="time"
-              className={inputCls}
-              value={draft.planStart ?? ""}
-              onChange={(e) => set("planStart", e.target.value || undefined)}
-            />
-          </div>
-          <div>
-            <label className={labelCls}>期限(いつまでに)</label>
-            <input
-              type="date"
-              className={inputCls}
-              value={draft.deadline ?? ""}
-              onChange={(e) => set("deadline", e.target.value || undefined)}
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-2">
+        </fieldset>
+
+        {/* 実績(記録) */}
+        <fieldset className="mb-4 rounded-lg border border-gray-200 p-3">
+          <legend className="px-1 text-xs font-semibold text-gray-500">実績(記録)</legend>
+          <div className="grid grid-cols-2 gap-4 sm:max-w-sm">
             <div>
               <label className={labelCls}>開始実績</label>
               <input
@@ -238,7 +250,10 @@ export default function TaskForm({
               />
             </div>
           </div>
-        </div>
+          <p className="mt-2 text-[11px] text-gray-400">
+            通常は一覧の S(開始)/ E(終了)ボタンで自動入力されます。ここでは手直しできます。
+          </p>
+        </fieldset>
 
         {/* 繰り返し設定 */}
         <div className="mb-3 rounded border border-gray-200 bg-gray-50 p-3">
