@@ -2,7 +2,7 @@
 // タスクのライフサイクルロジック
 // Excel版 modTask(開始・終了・中断)/ 繰り返し生成のロジックを踏襲
 // ==============================================================
-import type { RepeatConfig, Task } from "../types";
+import type { DerivedStatus, RepeatConfig, Task } from "../types";
 import {
   addToDate,
   hhmmToMin,
@@ -24,7 +24,7 @@ export function createTask(partial: Partial<Task>): Task {
     title: "",
     category: "",
     importance: "C",
-    status: "notStarted",
+    waiting: false,
     estimateMin: 0,
     memos: ["", "", ""],
     links: [],
@@ -33,6 +33,14 @@ export function createTask(partial: Partial<Task>): Task {
     date: todayStr(),
     ...partial,
   };
+}
+
+/** 表示用ステータスを実績から自動判定する(Excel版と同じ考え方) */
+export function derivedStatus(task: Task): DerivedStatus {
+  if (task.actEnd) return "done";
+  if (task.actStart) return "running";
+  if (task.waiting) return "waiting";
+  return "notStarted";
 }
 
 // ---------- 計算列(Excel版 G/J/O 列の数式を踏襲) ----------
@@ -59,30 +67,30 @@ export function remainMin(task: Task): number {
 
 /** 期限切れか(完了タスクは対象外) */
 export function isOverdue(task: Task): boolean {
-  return !!task.deadline && task.status !== "done" && task.deadline < todayStr();
+  return !!task.deadline && !task.actEnd && task.deadline < todayStr();
 }
 
 /** 期限当日か(完了タスクは対象外) */
 export function isDueToday(task: Task): boolean {
-  return !!task.deadline && task.status !== "done" && task.deadline === todayStr();
+  return !!task.deadline && !task.actEnd && task.deadline === todayStr();
 }
 
 // ---------- 開始・終了 ----------
 
-/** タスク開始: 開始実績=今、ステータス=進行中(Excel StartTask 踏襲) */
+/** タスク開始: 開始実績=今。待ちフラグは解除(Excel StartTask 踏襲) */
 export function startTask(task: Task, time?: string): Task {
   return {
     ...task,
     actStart: time ?? nowHHMM(),
     actEnd: undefined,
-    status: "inProgress",
+    waiting: false,
     date: task.date ?? todayStr(),
     updatedAt: new Date().toISOString(),
   };
 }
 
 /**
- * タスク終了: 終了実績=今、ステータス=完了。
+ * タスク終了: 終了実績=今、待ちフラグは自動解除。
  * 繰り返し設定があれば次回タスクも生成して返す(Excel EndTask 踏襲)。
  */
 export function endTask(
@@ -92,7 +100,7 @@ export function endTask(
   const updated: Task = {
     ...task,
     actEnd: time ?? nowHHMM(),
-    status: "done" as const,
+    waiting: false,
     updatedAt: new Date().toISOString(),
   };
   const next = task.repeat ? generateNextOccurrence(updated) : undefined;
@@ -136,7 +144,7 @@ export function generateNextOccurrence(task: Task): Task {
 export interface InterruptResult {
   /** 元タスク: 消化分として確定(見積=実績、終了=今、完了) */
   consumed: Task;
-  /** 残りタスク: 残見積を引き継ぎ「中断中」で生成 */
+  /** 残りタスク: 残見積を引き継いだ未着手タスクとして生成 */
   remainder: Task;
   /** 割込みタスク(名前が入力された場合のみ): 即開始状態で生成 */
   interrupt?: Task;
@@ -151,7 +159,7 @@ export function interruptTask(
   const ended: Task = {
     ...task,
     actEnd: now,
-    status: "done",
+    waiting: false,
     updatedAt: new Date().toISOString(),
   };
   const consumedMin = actMin(ended) ?? 0;
@@ -165,7 +173,6 @@ export function interruptTask(
     title: task.title,
     category: task.category,
     importance: task.importance,
-    status: "suspended",
     date: task.date ?? todayStr(),
     estimateMin: remainingMin,
     deadline: task.deadline,
@@ -181,7 +188,6 @@ export function interruptTask(
     interrupt = createTask({
       title: interruptTitle.trim(),
       category: task.category,
-      status: "inProgress",
       date: todayStr(),
       estimateMin: interruptEstimateMin ?? 0,
       planStart: now,
@@ -192,12 +198,33 @@ export function interruptTask(
   return { consumed, remainder, interrupt };
 }
 
-// ---------- 再開・分解 ----------
+// ---------- 待ち(Excel版 WaitTask 踏襲) ----------
 
-/** 中断したタスクの再開 = 開始実績を今にして進行中へ */
-export function resumeTask(task: Task): Task {
-  return startTask(task);
+/** 待ちフラグのトグル(未完了タスク用) */
+export function toggleWaiting(task: Task): Task {
+  return { ...task, waiting: !task.waiting, updatedAt: new Date().toISOString() };
 }
+
+/**
+ * 完了タスクから「待ちタスク」を複製する(Excel版 WaitTask 踏襲)。
+ * 見積=0、開始予定・実績はクリアし、待ちフラグを立てる。
+ */
+export function createWaitCopy(task: Task): Task {
+  return createTask({
+    title: task.title,
+    category: task.category,
+    importance: task.importance,
+    date: task.date,
+    estimateMin: 0,
+    deadline: task.deadline,
+    memos: [...task.memos],
+    links: [...task.links],
+    parentId: task.parentId,
+    waiting: true,
+  });
+}
+
+// ---------- 分解 ----------
 
 /** 「準備」タスクを追加(例: 会議に対する準備時間) */
 export function createPrepTask(parent: Task, estimateMin: number): Task {
@@ -210,24 +237,6 @@ export function createPrepTask(parent: Task, estimateMin: number): Task {
     deadline: parent.deadline,
     parentId: parent.id,
   });
-}
-
-/** タスクを複数の子タスクに分割する */
-export function splitTask(
-  parent: Task,
-  children: { title: string; estimateMin: number }[]
-): Task[] {
-  return children.map((c) =>
-    createTask({
-      title: c.title,
-      category: parent.category,
-      importance: parent.importance,
-      date: parent.date,
-      estimateMin: c.estimateMin,
-      deadline: parent.deadline,
-      parentId: parent.id,
-    })
-  );
 }
 
 // ---------- 連続開始時刻の自動設定(Excel SetSequentialStartHHMM 踏襲) ----------

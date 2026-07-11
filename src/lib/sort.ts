@@ -3,15 +3,7 @@
 //   日付 → 開始実績 → 開始予定 → ステータス → 繰り返し → 見積 → タスク名
 //   Excelの昇順ソートでは空白セルが最後に来るため、空値は最後に回す。
 // ==============================================================
-import type { Status, Task } from "../types";
-
-const STATUS_ORDER: Record<Status, number> = {
-  inProgress: 0,
-  suspended: 1,
-  notStarted: 2,
-  waiting: 3,
-  done: 4,
-};
+import type { Task } from "../types";
 
 /** 空値を最後に回して比較する */
 function cmpOptional(a: string | undefined, b: string | undefined): number {
@@ -31,8 +23,8 @@ export function compareTasks(a: Task, b: Task): number {
   // 3. 開始予定
   c = cmpOptional(a.planStart, b.planStart);
   if (c !== 0) return c;
-  // 4. ステータス
-  c = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+  // 4. ステータス(Excel版 B列: 空白が先、"w"=待ちが後)
+  c = (a.waiting ? 1 : 0) - (b.waiting ? 1 : 0);
   if (c !== 0) return c;
   // 5. 繰り返し(設定ありを先に)
   c = (a.repeat ? 0 : 1) - (b.repeat ? 0 : 1);

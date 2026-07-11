@@ -2,21 +2,35 @@
 // カード/リスト形式ビュー(Todoist風)
 // ==============================================================
 import type { Task } from "../types";
-import { STATUS_LABELS } from "../types";
+import { DERIVED_STATUS_LABELS } from "../types";
 import { formatDateJa, formatMin } from "../lib/date";
-import { actMin, planEnd } from "../lib/logic";
+import { actMin, derivedStatus, planEnd } from "../lib/logic";
 import TaskActions, { type TaskActionHandlers } from "./TaskActions";
-import { deadlineTextClass, importanceBadgeClass, taskBgClass } from "./rowStyle";
+import {
+  deadlineTextClass,
+  importanceBadgeClass,
+  statusBadgeClass,
+  taskBgClass,
+} from "./rowStyle";
 
 interface Props extends TaskActionHandlers {
   tasks: Task[];
   selectedIds: Set<string>;
+  /** 待ちフラグのトグル(完了タスクは待ちタスクとして複製) */
+  onToggleWait: (task: Task) => void;
   /** キーボードカーソル位置のタスクID */
   focusedId: string | null;
   onFocusTask: (id: string) => void;
 }
 
-export default function TaskCards({ tasks, selectedIds, focusedId, onFocusTask, ...handlers }: Props) {
+export default function TaskCards({
+  tasks,
+  selectedIds,
+  onToggleWait,
+  focusedId,
+  onFocusTask,
+  ...handlers
+}: Props) {
   if (tasks.length === 0) {
     return (
       <p className="mt-8 text-center text-sm text-gray-400">
@@ -49,14 +63,22 @@ export default function TaskCards({ tasks, selectedIds, focusedId, onFocusTask, 
                   {t.importance}
                 </span>
                 <span
-                  className={`font-semibold ${t.status === "done" ? "line-through" : "text-gray-800"}`}
+                  className={`font-semibold ${t.actEnd ? "line-through" : "text-gray-800"}`}
                 >
                   {t.parentId && <span className="text-gray-400">└ </span>}
                   {t.title}
                 </span>
-                <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[11px] text-gray-600">
-                  {STATUS_LABELS[t.status]}
-                </span>
+                <button
+                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${statusBadgeClass(derivedStatus(t))}`}
+                  title={
+                    t.actEnd
+                      ? "クリックで待ちタスクとして複製(Wキー)"
+                      : "クリックで待ちON/OFF(Wキー)"
+                  }
+                  onClick={() => onToggleWait(t)}
+                >
+                  {DERIVED_STATUS_LABELS[derivedStatus(t)]}
+                </button>
                 {t.category && (
                   <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] text-blue-700">
                     {t.category}

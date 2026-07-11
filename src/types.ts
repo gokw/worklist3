@@ -3,24 +3,19 @@
 // Excel版の列構成(A〜O列)を踏襲しつつ、期限・リンク・重要度を追加
 // ==============================================================
 
-/** ステータス(Excel版のB列記号をドロップダウン化) */
-export type Status = "notStarted" | "inProgress" | "done" | "suspended" | "waiting";
+/**
+ * 表示用ステータス(Excel版と同じく実績から自動判定する)
+ *   完了=終了実績あり / 進行中=開始実績のみ / 待ち=待ちフラグ / 未着手=それ以外
+ * ユーザーが自分で設定するのは「待ち」フラグ(Excel版 B列の "w")のみ。
+ */
+export type DerivedStatus = "notStarted" | "running" | "waiting" | "done";
 
-export const STATUS_LABELS: Record<Status, string> = {
+export const DERIVED_STATUS_LABELS: Record<DerivedStatus, string> = {
   notStarted: "未着手",
-  inProgress: "進行中",
-  done: "完了",
-  suspended: "中断中",
+  running: "進行中",
   waiting: "待ち",
+  done: "完了",
 };
-
-export const ALL_STATUSES: Status[] = [
-  "notStarted",
-  "inProgress",
-  "done",
-  "suspended",
-  "waiting",
-];
 
 /** 重要度 S(最高)〜E の6段階 */
 export type Importance = "S" | "A" | "B" | "C" | "D" | "E";
@@ -55,8 +50,8 @@ export interface Task {
   category: string;
   /** 重要度 S〜E(新規) */
   importance: Importance;
-  /** ステータス(Excel B列) */
-  status: Status;
+  /** 待ちフラグ(Excel B列の "w" 相当)。Wキーでトグル、終了時に自動解除 */
+  waiting: boolean;
   /** いつやるか=日付部 YYYY-MM-DD(Excel A列)。未設定なら毎日「その日のタスク」扱い */
   date?: string;
   /** いつやるか=時刻部 HH:MM(Excel F列 開始予定)。設定があれば「予定」 */

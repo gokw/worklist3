@@ -19,7 +19,7 @@ export class LocalStorageRepository implements TaskRepository {
       if (!raw) return [];
       const parsed = JSON.parse(raw);
       if (!Array.isArray(parsed)) return [];
-      return parsed as Task[];
+      return parsed.map(migrate);
     } catch (e) {
       console.error("タスクの読み込みに失敗しました", e);
       return [];
@@ -33,6 +33,22 @@ export class LocalStorageRepository implements TaskRepository {
       console.error("タスクの保存に失敗しました", e);
     }
   }
+}
+
+/**
+ * 旧形式データの変換。
+ * 初期バージョンは status(5値)を持っていたが、現在は「待ち」フラグのみを保存し、
+ * 未着手/進行中/完了は実績から自動判定する方式に変更した。
+ */
+function migrate(raw: Record<string, unknown>): Task {
+  const t = { ...raw } as unknown as Task & { status?: string };
+  if (t.waiting === undefined) {
+    t.waiting = t.status === "waiting";
+    // 旧データで「完了」だが終了実績が無いものは、完了状態を保つため実績を補完
+    if (t.status === "done" && !t.actEnd) t.actEnd = t.actStart ?? "00:00";
+    delete t.status;
+  }
+  return t;
 }
 
 export const repository: TaskRepository = new LocalStorageRepository();

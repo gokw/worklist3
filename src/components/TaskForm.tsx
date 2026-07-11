@@ -4,13 +4,7 @@
 // ==============================================================
 import { useEffect, useState } from "react";
 import type { RepeatConfig, Task } from "../types";
-import {
-  ALL_IMPORTANCES,
-  ALL_STATUSES,
-  REPEAT_UNIT_LABELS,
-  STATUS_LABELS,
-  WEEKDAY_LABELS,
-} from "../types";
+import { ALL_IMPORTANCES, REPEAT_UNIT_LABELS, WEEKDAY_LABELS } from "../types";
 
 interface Props {
   task: Task;
@@ -148,18 +142,15 @@ export default function TaskForm({
             </select>
           </div>
           <div>
-            <label className={labelCls}>ステータス</label>
-            <select
-              className={inputCls}
-              value={draft.status}
-              onChange={(e) => set("status", e.target.value as Task["status"])}
-            >
-              {ALL_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
+            <label className={labelCls}>待ち</label>
+            <label className="flex h-[26px] items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={draft.waiting}
+                onChange={(e) => set("waiting", e.target.checked)}
+              />
+              待ち(他の人待ち等)
+            </label>
           </div>
           <div>
             <label className={labelCls}>見積時間(分)</label>
