@@ -10,9 +10,13 @@ import { deadlineTextClass, importanceBadgeClass, taskBgClass } from "./rowStyle
 
 interface Props extends TaskActionHandlers {
   tasks: Task[];
+  selectedIds: Set<string>;
+  /** キーボードカーソル位置のタスクID */
+  focusedId: string | null;
+  onFocusTask: (id: string) => void;
 }
 
-export default function TaskCards({ tasks, ...handlers }: Props) {
+export default function TaskCards({ tasks, selectedIds, focusedId, onFocusTask, ...handlers }: Props) {
   if (tasks.length === 0) {
     return (
       <p className="mt-8 text-center text-sm text-gray-400">
@@ -26,7 +30,15 @@ export default function TaskCards({ tasks, ...handlers }: Props) {
       {tasks.map((t) => (
         <div
           key={t.id}
-          className={`rounded-lg border border-gray-200 p-3 shadow-sm ${taskBgClass(t)}`}
+          data-task-id={t.id}
+          onClick={() => onFocusTask(t.id)}
+          className={`rounded-lg border p-3 shadow-sm ${taskBgClass(t)} ${
+            t.id === focusedId
+              ? "border-blue-600 ring-2 ring-blue-400"
+              : selectedIds.has(t.id)
+                ? "border-blue-300"
+                : "border-gray-200"
+          }`}
         >
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">

@@ -13,6 +13,9 @@ interface Props extends TaskActionHandlers {
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
   onStatusChange: (task: Task, status: Task["status"]) => void;
+  /** キーボードカーソル位置のタスクID */
+  focusedId: string | null;
+  onFocusTask: (id: string) => void;
 }
 
 const th = "border-b border-gray-300 bg-gray-700 px-2 py-1.5 text-left text-xs font-semibold text-white whitespace-nowrap";
@@ -34,6 +37,8 @@ export default function TaskTable({
   selectedIds,
   onToggleSelect,
   onStatusChange,
+  focusedId,
+  onFocusTask,
   ...handlers
 }: Props) {
   if (tasks.length === 0) {
@@ -70,8 +75,16 @@ export default function TaskTable({
         <tbody>
           {tasks.map((t) => {
             const act = actMin(t);
+            const focused = t.id === focusedId;
             return (
-              <tr key={t.id} className={`${taskBgClass(t)} hover:brightness-95`}>
+              <tr
+                key={t.id}
+                data-task-id={t.id}
+                onClick={() => onFocusTask(t.id)}
+                className={`${taskBgClass(t)} hover:brightness-95 cursor-default ${
+                  focused ? "outline outline-2 -outline-offset-2 outline-blue-600" : ""
+                }`}
+              >
                 <td className={td}>
                   <input
                     type="checkbox"
