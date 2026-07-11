@@ -79,5 +79,23 @@ export interface Task {
 /** 表示ビュー: その日のすべて / その日の予定(時刻あり)のみ / 全期間 */
 export type ViewMode = "dayAll" | "dayPlanned" | "everything";
 
+/** 仕事/個人モード(場面に合わせて見える世界を丸ごと切り替えるフィルタ) */
+export type WorkMode = "work" | "personal" | "all";
+
+export const WORK_MODE_LABELS: Record<WorkMode, string> = {
+  work: "💼 仕事",
+  personal: "🏠 個人",
+  all: "すべて",
+};
+
+/** カテゴリの振り分け先(both=仕事・個人どちらのモードでも表示) */
+export type CategoryGroup = "work" | "personal" | "both";
+
+export const CATEGORY_GROUP_LABELS: Record<CategoryGroup, string> = {
+  work: "仕事",
+  personal: "個人",
+  both: "共通",
+};
+
 /** 表示形式: 表(Excel踏襲) / カード(Todoist風) */
 export type LayoutMode = "table" | "cards";

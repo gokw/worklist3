@@ -3,7 +3,8 @@
 //   状態管理・フィルタ・ショートカットキー・各ダイアログの制御
 // ==============================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { LayoutMode, Task, ViewMode } from "./types";
+import type { CategoryGroup, LayoutMode, Task, ViewMode, WorkMode } from "./types";
+import { WORK_MODE_LABELS } from "./types";
 import { formatMin, nowHHMM, todayStr } from "./lib/date";
 import {
   actMin,
@@ -40,6 +41,22 @@ export default function App() {
   /** キーボード操作のカーソル位置(Excel版のアクティブセル行に相当) */
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
+  // 仕事/個人モード(前回のモードを記憶)
+  const [mode, setMode] = useState<WorkMode>(() => {
+    const saved = localStorage.getItem("worklist3.mode");
+    return saved === "work" || saved === "personal" ? saved : "all";
+  });
+  // カテゴリ→モードの振り分け設定(初期値はよく使う3カテゴリを仮設定)
+  const [categoryModes, setCategoryModes] = useState<Record<string, CategoryGroup>>(() => {
+    try {
+      const raw = localStorage.getItem("worklist3.categoryModes.v1");
+      if (raw) return JSON.parse(raw);
+    } catch {
+      /* 壊れていたら初期値に戻す */
+    }
+    return { ビジネス: "work", ファミリー: "personal", パーソナル: "personal" };
+  });
+
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
   const [formIsNew, setFormIsNew] = useState(true);
@@ -55,6 +72,14 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("worklist3.layout", layout);
   }, [layout]);
+
+  useEffect(() => {
+    localStorage.setItem("worklist3.mode", mode);
+  }, [mode]);
+
+  useEffect(() => {
+    localStorage.setItem("worklist3.categoryModes.v1", JSON.stringify(categoryModes));
+  }, [categoryModes]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -76,8 +101,19 @@ export default function App() {
   }, []);
 
   // ---------- フィルタ・並び替え ----------
+  /** 現在のモードで表示すべきタスクか(未分類・共通カテゴリは常に表示) */
+  const matchesMode = useCallback(
+    (t: Task) => {
+      if (mode === "all") return true;
+      if (!t.category) return true; // カテゴリ未設定はどのモードでも表示
+      const group = categoryModes[t.category] ?? "both"; // 未振り分けは共通扱い
+      return group === "both" || group === mode;
+    },
+    [mode, categoryModes]
+  );
+
   const visibleTasks = useMemo(() => {
-    let list = tasks;
+    let list = tasks.filter(matchesMode);
     if (viewMode === "dayAll") {
       // その日のタスクすべて = 日付一致 + 日付未設定(毎日扱い)
       list = list.filter((t) => !t.date || t.date === selectedDate);
@@ -88,22 +124,24 @@ export default function App() {
     if (categoryFilter) list = list.filter((t) => t.category === categoryFilter);
     if (!showDone) list = list.filter((t) => !t.actEnd);
     return sortTasks(list);
-  }, [tasks, viewMode, selectedDate, categoryFilter, showDone]);
+  }, [tasks, viewMode, selectedDate, categoryFilter, showDone, matchesMode]);
 
   const categories = useMemo(
     () => [...new Set(tasks.map((t) => t.category).filter(Boolean))].sort(),
     [tasks]
   );
 
-  // その日の集計(Excel版 B2:B4 相当)
+  // その日の集計(Excel版 B2:B4 相当)。モード絞込も反映する
   const totals = useMemo(() => {
-    const dayTasks = tasks.filter((t) => !t.date || t.date === selectedDate);
+    const dayTasks = tasks.filter(
+      (t) => (!t.date || t.date === selectedDate) && matchesMode(t)
+    );
     return {
       estimate: dayTasks.filter((t) => !t.actEnd).reduce((s, t) => s + t.estimateMin, 0),
       actual: dayTasks.reduce((s, t) => s + (actMin(t) ?? 0), 0),
       remain: dayTasks.reduce((s, t) => s + remainMin(t), 0),
     };
-  }, [tasks, selectedDate]);
+  }, [tasks, selectedDate, matchesMode]);
 
   // ---------- タスク操作 ----------
   const openNewForm = useCallback(
@@ -209,13 +247,14 @@ export default function App() {
     }
   }, [showToast]);
 
-  // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスクは対象外
+  // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスク・モード対象外は除く
   const handleRandomStart = useCallback(() => {
     const candidates = tasks.filter(
       (t) =>
         (!t.date || t.date === selectedDate) &&
         !t.planStart &&
-        derivedStatus(t) === "notStarted"
+        derivedStatus(t) === "notStarted" &&
+        matchesMode(t)
     );
     if (candidates.length === 0) {
       showToast("該当するタスクが見つかりませんでした");
@@ -223,7 +262,16 @@ export default function App() {
     }
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
     handleStart(picked);
-  }, [tasks, selectedDate, handleStart, showToast]);
+  }, [tasks, selectedDate, handleStart, showToast, matchesMode]);
+
+  // モードを 仕事→個人→すべて の順に巡回(Mキー)
+  const cycleMode = useCallback(() => {
+    setMode((m) => {
+      const next: WorkMode = m === "work" ? "personal" : m === "personal" ? "all" : "work";
+      showToast(`モード: ${WORK_MODE_LABELS[next]}`);
+      return next;
+    });
+  }, [showToast]);
 
   // 連続開始時刻セット(Excel版 SetSequentialStartHHMM 踏襲)
   const handleSequentialStart = useCallback(() => {
@@ -305,6 +353,10 @@ export default function App() {
         case "t":
           e.preventDefault();
           setLayout((l) => (l === "table" ? "cards" : "table"));
+          break;
+        case "m": // 仕事/個人/すべて モード巡回
+          e.preventDefault();
+          cycleMode();
           break;
         case "arrowup":
           e.preventDefault();
@@ -392,6 +444,7 @@ export default function App() {
     toggleSelect,
     remove,
     showToast,
+    cycleMode,
   ]);
 
   // ---------- 描画 ----------
@@ -408,6 +461,13 @@ export default function App() {
       <Toolbar
         selectedDate={selectedDate}
         onDateChange={setSelectedDate}
+        mode={mode}
+        onModeChange={(m) => {
+          setMode(m);
+          showToast(`モード: ${WORK_MODE_LABELS[m]}`);
+        }}
+        categoryModes={categoryModes}
+        onCategoryModesChange={setCategoryModes}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         layout={layout}
@@ -453,8 +513,8 @@ export default function App() {
           <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ちON/OFF(完了タスクは待ちとして複製) /{" "}
           <kbd>Enter</kbd> 編集 / <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
           <br />
-          <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 / <kbd>T</kbd> 表⇔カード切替 /{" "}
-          <kbd>←</kbd><kbd>→</kbd> 日付移動
+          <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 / <kbd>M</kbd> 仕事⇔個人モード /{" "}
+          <kbd>T</kbd> 表⇔カード切替 / <kbd>←</kbd><kbd>→</kbd> 日付移動
         </p>
       </main>
 
