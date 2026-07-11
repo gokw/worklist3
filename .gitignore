@@ -1,0 +1,21 @@
+# 依存ライブラリ(npm installで再生成できるためGit管理しない)
+node_modules/
+
+# ビルド成果物
+dist/
+
+# ログ
+*.log
+npm-debug.log*
+
+# エディタ・OSの一時ファイル
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# ローカル環境設定
+.env
+.env.local
+.claude/settings.local.json

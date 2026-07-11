@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+kbd {
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  padding: 0 4px;
+  background: #f3f4f6;
+  font-family: inherit;
+}
