@@ -3,19 +3,26 @@
 //   開始/終了など、時刻を入力したい場面で使い回す。
 //   - 初期値を渡す(開始予定 or 現在時刻など、呼び出し側で決める)
 //   - 手入力: 数字4桁(0930)でも H:MM でもOK(parseTimeInputで正規化)
-//   - 「現在時刻」ボタン
-//   - 「続き時間」ボタン: その日の最終終了時刻を入れる(渡されたときのみ表示)
+//   - 「現在時刻」ボタンは常設
+//   - quickButtons: 呼び出し側が渡す候補ボタン(開始=「続き時間」、終了=「終了予定」等)
 // ==============================================================
 import { useEffect, useRef, useState } from "react";
 import { nowHHMM, parseTimeInput } from "../lib/date";
+
+/** ワンタッチで時刻を入れる候補ボタン */
+export interface QuickTime {
+  label: string;
+  /** セットする時刻(HH:MM) */
+  value: string;
+}
 
 interface Props {
   title: string;
   message?: string;
   /** 初期表示する時刻(HH:MM)。未指定なら現在時刻 */
   defaultValue?: string;
-  /** その日の最終終了時刻(HH:MM)。渡すと「続き時間」ボタンを表示 */
-  continuationTime?: string;
+  /** 「現在時刻」以外に出す候補ボタン(値が空のものは表示しない) */
+  quickButtons?: QuickTime[];
   confirmLabel?: string;
   onConfirm: (time: string) => void;
   onClose: () => void;
@@ -28,7 +35,7 @@ export default function TimeInputDialog({
   title,
   message,
   defaultValue,
-  continuationTime,
+  quickButtons,
   confirmLabel = "決定",
   onConfirm,
   onClose,
@@ -95,16 +102,18 @@ export default function TimeInputDialog({
           <button type="button" className={quickBtn} onClick={() => setValue(nowHHMM())}>
             現在時刻
           </button>
-          {continuationTime && (
-            <button
-              type="button"
-              className={quickBtn}
-              title="その日の最後の終了時刻を入れる"
-              onClick={() => setValue(continuationTime)}
-            >
-              続き時間 ({continuationTime})
-            </button>
-          )}
+          {quickButtons
+            ?.filter((b) => b.value)
+            .map((b) => (
+              <button
+                key={b.label}
+                type="button"
+                className={quickBtn}
+                onClick={() => setValue(b.value)}
+              >
+                {b.label}
+              </button>
+            ))}
         </div>
 
         <div className="mt-4 flex justify-end gap-2">

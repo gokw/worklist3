@@ -15,6 +15,7 @@ import {
   endTask,
   interruptTask,
   lastEndTimeOfDay,
+  planEnd,
   remainMin,
   setSequentialStart,
   startTask,
@@ -54,6 +55,7 @@ export default function App() {
   const [formIsNew, setFormIsNew] = useState(true);
   const [interruptTarget, setInterruptTarget] = useState<Task | null>(null);
   const [startTarget, setStartTarget] = useState<Task | null>(null);
+  const [endTarget, setEndTarget] = useState<Task | null>(null);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -158,14 +160,20 @@ export default function App() {
     [upsert, showToast]
   );
 
-  const handleEnd = useCallback(
-    (task: Task) => {
-      const { updated, next } = endTask(task);
+  // 終了も時刻入力ダイアログを開き、確定した時刻で終了する(Excel版 EndTask 踏襲)
+  const handleEnd = useCallback((task: Task) => {
+    setEndTarget(task);
+  }, []);
+
+  const doEnd = useCallback(
+    (task: Task, time: string) => {
+      const { updated, next } = endTask(task, time);
       upsert(next ? [updated, next] : [updated]);
+      setEndTarget(null);
       showToast(
         next
-          ? `■ 完了: ${task.title} → 次回 ${next.date} に生成しました`
-          : `■ 完了: ${task.title}`
+          ? `■ 完了: ${task.title} (${time}) → 次回 ${next.date} に生成しました`
+          : `■ 完了: ${task.title} (${time})`
       );
     },
     [upsert, showToast]
@@ -322,7 +330,7 @@ export default function App() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       // ボタン上のEnter/Spaceはボタン自体の動作を優先(二重発火防止)
       if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
-      if (formTask || interruptTarget || startTarget) return;
+      if (formTask || interruptTarget || startTarget || endTarget) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -426,6 +434,7 @@ export default function App() {
     formTask,
     interruptTarget,
     startTarget,
+    endTarget,
     openNewForm,
     handleClipboardImport,
     selectedDate,
@@ -543,10 +552,29 @@ export default function App() {
           message={`「${startTarget.title}」の開始時刻を入力してください`}
           // 開始予定があればその時刻、無ければ現在時刻を初期値に(Excel版 StartTask)
           defaultValue={startTarget.planStart ?? nowHHMM()}
-          continuationTime={lastEndTimeOfDay(tasks, startTarget.date ?? todayStr())}
+          quickButtons={[
+            {
+              label: `続き時間 (${lastEndTimeOfDay(tasks, startTarget.date ?? todayStr()) ?? "―"})`,
+              value: lastEndTimeOfDay(tasks, startTarget.date ?? todayStr()) ?? "",
+            },
+          ]}
           confirmLabel="開始"
           onConfirm={(time) => doStart(startTarget, time)}
           onClose={() => setStartTarget(null)}
+        />
+      )}
+      {endTarget && (
+        <TimeInputDialog
+          title="タスク終了"
+          message={`「${endTarget.title}」の終了時刻を入力してください`}
+          // 終了は現在時刻を初期値に。ボタンで終了予定(開始予定+見積)を入れられる(Excel版 EndTask)
+          defaultValue={nowHHMM()}
+          quickButtons={[
+            { label: `終了予定 (${planEnd(endTarget) ?? "―"})`, value: planEnd(endTarget) ?? "" },
+          ]}
+          confirmLabel="終了"
+          onConfirm={(time) => doEnd(endTarget, time)}
+          onClose={() => setEndTarget(null)}
         />
       )}
 
