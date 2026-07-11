@@ -3,8 +3,8 @@
 // 繰り返し設定はExcel版の記号入力を廃止し、フォームUIで指定する
 // ==============================================================
 import { useEffect, useState } from "react";
-import type { RepeatConfig, Task } from "../types";
-import { ALL_IMPORTANCES, REPEAT_UNIT_LABELS, WEEKDAY_LABELS } from "../types";
+import type { RepeatConfig, Task, TaskScope } from "../types";
+import { ALL_IMPORTANCES, REPEAT_UNIT_LABELS, SCOPE_LABELS, WEEKDAY_LABELS } from "../types";
 
 interface Props {
   task: Task;
@@ -109,18 +109,42 @@ export default function TaskForm({
           <p className="mt-0.5 text-[11px] text-gray-400">Ctrl+Enter で保存</p>
         </div>
 
+        {/* 仕事/個人(ビュー切替用。カテゴリとは別の軸) */}
+        <div className="mb-3">
+          <label className={labelCls}>仕事 / 個人</label>
+          <div className="flex gap-1">
+            {(["work", "personal"] as TaskScope[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => set("scope", s)}
+                className={`rounded px-4 py-1 text-sm font-semibold ${
+                  draft.scope === s
+                    ? s === "work"
+                      ? "bg-blue-600 text-white"
+                      : "bg-emerald-600 text-white"
+                    : "border border-gray-300 bg-white text-gray-500 hover:bg-gray-100"
+                }`}
+              >
+                {s === "work" ? "💼 " : "🏠 "}
+                {SCOPE_LABELS[s]}
+              </button>
+            ))}
+          </div>
+        </div>
+
         <div className="mb-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div>
-            <label className={labelCls}>カテゴリ</label>
+            <label className={labelCls}>カテゴリ(分類・集計用)</label>
             <input
               className={inputCls}
               list="category-list"
               value={draft.category}
               onChange={(e) => set("category", e.target.value)}
-              placeholder="ビジネス 等"
+              placeholder="運用業務 / 稟議チェック 等"
             />
             <datalist id="category-list">
-              {["ビジネス", "ファミリー", "パーソナル", ...categories]
+              {categories
                 .filter((c, i, a) => c && a.indexOf(c) === i)
                 .map((c) => (
                   <option key={c} value={c} />

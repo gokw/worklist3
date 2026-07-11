@@ -22,6 +22,7 @@ export function createTask(partial: Partial<Task>): Task {
   return {
     id: newId(),
     title: "",
+    scope: "work",
     category: "",
     importance: "C",
     waiting: false,
@@ -123,6 +124,7 @@ export function generateNextOccurrence(task: Task): Task {
 
   return createTask({
     title: task.title,
+    scope: task.scope,
     category: task.category,
     importance: task.importance,
     estimateMin: task.estimateMin,
@@ -171,6 +173,7 @@ export function interruptTask(
   // 2) 残りタスク: 開始予定・実績をクリアし、見積=残り
   const remainder = createTask({
     title: task.title,
+    scope: task.scope,
     category: task.category,
     importance: task.importance,
     date: task.date ?? todayStr(),
@@ -187,6 +190,7 @@ export function interruptTask(
   if (interruptTitle && interruptTitle.trim() !== "") {
     interrupt = createTask({
       title: interruptTitle.trim(),
+      scope: task.scope,
       category: task.category,
       date: todayStr(),
       estimateMin: interruptEstimateMin ?? 0,
@@ -212,6 +216,7 @@ export function toggleWaiting(task: Task): Task {
 export function createWaitCopy(task: Task): Task {
   return createTask({
     title: task.title,
+    scope: task.scope,
     category: task.category,
     importance: task.importance,
     date: task.date,
@@ -230,6 +235,7 @@ export function createWaitCopy(task: Task): Task {
 export function createPrepTask(parent: Task, estimateMin: number): Task {
   return createTask({
     title: `【準備】${parent.title}`,
+    scope: parent.scope,
     category: parent.category,
     importance: parent.importance,
     date: parent.date,

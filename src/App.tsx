@@ -3,7 +3,7 @@
 //   状態管理・フィルタ・ショートカットキー・各ダイアログの制御
 // ==============================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CategoryGroup, LayoutMode, Task, ViewMode, WorkMode } from "./types";
+import type { LayoutMode, Task, TaskScope, ViewMode, WorkMode } from "./types";
 import { WORK_MODE_LABELS } from "./types";
 import { formatMin, nowHHMM, todayStr } from "./lib/date";
 import {
@@ -41,20 +41,10 @@ export default function App() {
   /** キーボード操作のカーソル位置(Excel版のアクティブセル行に相当) */
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
-  // 仕事/個人モード(前回のモードを記憶)
+  // 仕事/個人モード(前回のモードを記憶)。scope を絞り込むビュー
   const [mode, setMode] = useState<WorkMode>(() => {
     const saved = localStorage.getItem("worklist3.mode");
     return saved === "work" || saved === "personal" ? saved : "all";
-  });
-  // カテゴリ→モードの振り分け設定(初期値はよく使う3カテゴリを仮設定)
-  const [categoryModes, setCategoryModes] = useState<Record<string, CategoryGroup>>(() => {
-    try {
-      const raw = localStorage.getItem("worklist3.categoryModes.v1");
-      if (raw) return JSON.parse(raw);
-    } catch {
-      /* 壊れていたら初期値に戻す */
-    }
-    return { ビジネス: "work", ファミリー: "personal", パーソナル: "personal" };
   });
 
   // ダイアログ状態
@@ -77,10 +67,6 @@ export default function App() {
     localStorage.setItem("worklist3.mode", mode);
   }, [mode]);
 
-  useEffect(() => {
-    localStorage.setItem("worklist3.categoryModes.v1", JSON.stringify(categoryModes));
-  }, [categoryModes]);
-
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     window.clearTimeout(toastTimer.current);
@@ -101,15 +87,10 @@ export default function App() {
   }, []);
 
   // ---------- フィルタ・並び替え ----------
-  /** 現在のモードで表示すべきタスクか(未分類・共通カテゴリは常に表示) */
+  /** 現在のモード(仕事/個人/すべて)で表示すべきタスクか。タスク自身の scope で判定 */
   const matchesMode = useCallback(
-    (t: Task) => {
-      if (mode === "all") return true;
-      if (!t.category) return true; // カテゴリ未設定はどのモードでも表示
-      const group = categoryModes[t.category] ?? "both"; // 未振り分けは共通扱い
-      return group === "both" || group === mode;
-    },
-    [mode, categoryModes]
+    (t: Task) => mode === "all" || t.scope === mode,
+    [mode]
   );
 
   const visibleTasks = useMemo(() => {
@@ -144,12 +125,15 @@ export default function App() {
   }, [tasks, selectedDate, matchesMode]);
 
   // ---------- タスク操作 ----------
+  // 新規タスクの既定 scope = 今のビュー(すべてビューのときは仕事)
+  const defaultScope: TaskScope = mode === "personal" ? "personal" : "work";
+
   const openNewForm = useCallback(
     (initial?: Partial<Task>) => {
-      setFormTask(createTask({ date: selectedDate, ...initial }));
+      setFormTask(createTask({ date: selectedDate, scope: defaultScope, ...initial }));
       setFormIsNew(true);
     },
-    [selectedDate]
+    [selectedDate, defaultScope]
   );
 
   const openEditForm = useCallback((task: Task) => {
@@ -240,12 +224,13 @@ export default function App() {
       const { kind, task } = parseClipboardText(text);
       const kindLabel = { teams: "Teamsリンク", calendar: "予定", plain: "テキスト" }[kind];
       showToast(`${kindLabel}として認識しました。内容を確認して保存してください`);
-      setFormTask(task);
+      // 取込タスクも今のビューの仕事/個人に合わせる
+      setFormTask({ ...task, scope: defaultScope });
       setFormIsNew(true);
     } catch {
       showToast("クリップボードを読み取れませんでした(ブラウザの許可が必要です)");
     }
-  }, [showToast]);
+  }, [showToast, defaultScope]);
 
   // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスク・モード対象外は除く
   const handleRandomStart = useCallback(() => {
@@ -466,8 +451,6 @@ export default function App() {
           setMode(m);
           showToast(`モード: ${WORK_MODE_LABELS[m]}`);
         }}
-        categoryModes={categoryModes}
-        onCategoryModesChange={setCategoryModes}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         layout={layout}
