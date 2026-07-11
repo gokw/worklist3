@@ -66,6 +66,18 @@ export function remainMin(task: Task): number {
   return task.actEnd ? 0 : task.estimateMin;
 }
 
+/**
+ * その日の最終終了時刻(終了実績の最大)を返す。無ければ undefined。
+ * Excel版 I4 = MAX(終了実績) 相当。「続き時間」ボタンの初期値に使う。
+ */
+export function lastEndTimeOfDay(tasks: Task[], date: string): string | undefined {
+  const ends = tasks
+    .filter((t) => (t.date ?? "") === date && t.actEnd)
+    .map((t) => t.actEnd as string);
+  if (ends.length === 0) return undefined;
+  return ends.reduce((a, b) => (a >= b ? a : b));
+}
+
 /** 期限切れか(完了タスクは対象外) */
 export function isOverdue(task: Task): boolean {
   return !!task.deadline && !task.actEnd && task.deadline < todayStr();
