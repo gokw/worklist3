@@ -62,6 +62,7 @@ export default function TaskTable({
           <tr>
             <th className={th}></th>
             <th className={th}>日付</th>
+            <th className={th}>区分</th>
             <th className={th}>ステータス</th>
             <th className={th}>繰返</th>
             <th className={th}>タスク名</th>
@@ -100,6 +101,9 @@ export default function TaskTable({
                   />
                 </td>
                 <td className={td}>{t.date ? formatDateJa(t.date) : "毎日"}</td>
+                <td className={`${td} text-center`} title={t.scope === "work" ? "仕事" : "個人"}>
+                  {t.scope === "work" ? "💼" : "🏠"}
+                </td>
                 <td className={td}>
                   <button
                     className={`rounded px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(derivedStatus(t))}`}
