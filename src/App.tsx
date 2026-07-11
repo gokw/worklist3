@@ -36,6 +36,8 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState("");
   const [showDone, setShowDone] = useState(true);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  /** キーボード操作のカーソル位置(Excel版のアクティブセル行に相当) */
+  const [focusedId, setFocusedId] = useState<string | null>(null);
 
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -251,12 +253,37 @@ export default function App() {
     });
   }, []);
 
+  // ---------- カーソル移動(↑↓キー) ----------
+  const moveFocus = useCallback(
+    (delta: number) => {
+      if (visibleTasks.length === 0) return;
+      const idx = visibleTasks.findIndex((t) => t.id === focusedId);
+      const next =
+        idx === -1
+          ? delta > 0
+            ? 0
+            : visibleTasks.length - 1
+          : Math.min(Math.max(idx + delta, 0), visibleTasks.length - 1);
+      const id = visibleTasks[next].id;
+      setFocusedId(id);
+      // カーソル行が画面外なら追従スクロール
+      requestAnimationFrame(() => {
+        document
+          .querySelector(`[data-task-id="${CSS.escape(id)}"]`)
+          ?.scrollIntoView({ block: "nearest" });
+      });
+    },
+    [visibleTasks, focusedId]
+  );
+
   // ---------- ショートカットキー ----------
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // 入力中・ダイアログ表示中は無効
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // ボタン上のEnter/Spaceはボタン自体の動作を優先(二重発火防止)
+      if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
       if (formTask || interruptTarget || splitTarget) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -265,6 +292,10 @@ export default function App() {
         return;
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+      // カーソル位置のタスク(Excel版のアクティブセル行に相当)
+      const focused = visibleTasks.find((t) => t.id === focusedId);
+      const running = focused && !!focused.actStart && !focused.actEnd;
 
       switch (e.key.toLowerCase()) {
         case "n":
@@ -278,6 +309,51 @@ export default function App() {
         case "t":
           e.preventDefault();
           setLayout((l) => (l === "table" ? "cards" : "table"));
+          break;
+        case "arrowup":
+          e.preventDefault();
+          moveFocus(-1);
+          break;
+        case "arrowdown":
+          e.preventDefault();
+          moveFocus(1);
+          break;
+        case "s": // 開始/再開(Excel版 StartTask)
+          if (!focused) break;
+          e.preventDefault();
+          if (running) showToast("既に実行中です(E=終了 / I=中断)");
+          else if (focused.status === "done") showToast("完了済みのタスクです");
+          else handleStart(focused);
+          break;
+        case "e": // 終了(Excel版 EndTask)
+          if (!focused) break;
+          e.preventDefault();
+          if (running) handleEnd(focused);
+          else showToast("開始していないタスクです(S=開始)");
+          break;
+        case "i": // 中断・割り込み(Excel版 InterruputTask)
+          if (!focused) break;
+          e.preventDefault();
+          if (running) setInterruptTarget(focused);
+          else showToast("実行中のタスクのみ中断できます");
+          break;
+        case "enter": // 編集
+          if (!focused) break;
+          e.preventDefault();
+          openEditForm(focused);
+          break;
+        case " ": // 連続時刻設定などの選択トグル
+          if (!focused) break;
+          e.preventDefault();
+          toggleSelect(focused.id);
+          break;
+        case "delete":
+          if (!focused) break;
+          e.preventDefault();
+          if (confirm(`「${focused.title}」を削除しますか？`)) {
+            remove(focused.id);
+            showToast("削除しました");
+          }
           break;
         case "arrowleft": {
           const d = new Date(selectedDate);
@@ -299,7 +375,23 @@ export default function App() {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [formTask, interruptTarget, splitTarget, openNewForm, handleClipboardImport, selectedDate]);
+  }, [
+    formTask,
+    interruptTarget,
+    splitTarget,
+    openNewForm,
+    handleClipboardImport,
+    selectedDate,
+    visibleTasks,
+    focusedId,
+    moveFocus,
+    handleStart,
+    handleEnd,
+    openEditForm,
+    toggleSelect,
+    remove,
+    showToast,
+  ]);
 
   // ---------- 描画 ----------
   const actionHandlers = {
@@ -341,15 +433,26 @@ export default function App() {
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onStatusChange={handleStatusChange}
+            focusedId={focusedId}
+            onFocusTask={setFocusedId}
             {...actionHandlers}
           />
         ) : (
-          <TaskCards tasks={visibleTasks} {...actionHandlers} />
+          <TaskCards
+            tasks={visibleTasks}
+            selectedIds={selectedIds}
+            focusedId={focusedId}
+            onFocusTask={setFocusedId}
+            {...actionHandlers}
+          />
         )}
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
-          ショートカット: <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 /{" "}
-          <kbd>T</kbd> 表⇔カード切替 / <kbd>←</kbd><kbd>→</kbd> 日付移動
+          <kbd>↑</kbd><kbd>↓</kbd> タスク選択 / <kbd>S</kbd> 開始・再開 / <kbd>E</kbd> 終了 /{" "}
+          <kbd>I</kbd> 中断 / <kbd>Enter</kbd> 編集 / <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
+          <br />
+          <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 / <kbd>T</kbd> 表⇔カード切替 /{" "}
+          <kbd>←</kbd><kbd>→</kbd> 日付移動
         </p>
       </main>
 
