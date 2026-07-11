@@ -14,6 +14,7 @@ import {
   derivedStatus,
   endTask,
   interruptTask,
+  lastEndTimeOfDay,
   remainMin,
   setSequentialStart,
   startTask,
@@ -27,6 +28,7 @@ import TaskTable from "./components/TaskTable";
 import TaskCards from "./components/TaskCards";
 import TaskForm from "./components/TaskForm";
 import InterruptDialog from "./components/InterruptDialog";
+import TimeInputDialog from "./components/TimeInputDialog";
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => repository.load());
@@ -51,6 +53,7 @@ export default function App() {
   const [formTask, setFormTask] = useState<Task | null>(null);
   const [formIsNew, setFormIsNew] = useState(true);
   const [interruptTarget, setInterruptTarget] = useState<Task | null>(null);
+  const [startTarget, setStartTarget] = useState<Task | null>(null);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -141,10 +144,16 @@ export default function App() {
     setFormIsNew(false);
   }, []);
 
-  const handleStart = useCallback(
-    (task: Task) => {
-      upsert([startTask(task)]);
-      showToast(`▶ 開始: ${task.title} (${nowHHMM()})`);
+  // 開始は時刻入力ダイアログを開き、確定した時刻で開始する(Excel版 StartTask 踏襲)
+  const handleStart = useCallback((task: Task) => {
+    setStartTarget(task);
+  }, []);
+
+  const doStart = useCallback(
+    (task: Task, time: string) => {
+      upsert([startTask(task, time)]);
+      setStartTarget(null);
+      showToast(`▶ 開始: ${task.title} (${time})`);
     },
     [upsert, showToast]
   );
@@ -313,7 +322,7 @@ export default function App() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       // ボタン上のEnter/Spaceはボタン自体の動作を優先(二重発火防止)
       if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
-      if (formTask || interruptTarget) return;
+      if (formTask || interruptTarget || startTarget) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -416,6 +425,7 @@ export default function App() {
   }, [
     formTask,
     interruptTarget,
+    startTarget,
     openNewForm,
     handleClipboardImport,
     selectedDate,
@@ -525,6 +535,18 @@ export default function App() {
           task={interruptTarget}
           onConfirm={handleInterruptConfirm}
           onClose={() => setInterruptTarget(null)}
+        />
+      )}
+      {startTarget && (
+        <TimeInputDialog
+          title="タスク開始"
+          message={`「${startTarget.title}」の開始時刻を入力してください`}
+          // 開始予定があればその時刻、無ければ現在時刻を初期値に(Excel版 StartTask)
+          defaultValue={startTarget.planStart ?? nowHHMM()}
+          continuationTime={lastEndTimeOfDay(tasks, startTarget.date ?? todayStr())}
+          confirmLabel="開始"
+          onConfirm={(time) => doStart(startTarget, time)}
+          onClose={() => setStartTarget(null)}
         />
       )}
 

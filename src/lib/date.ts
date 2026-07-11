@@ -33,6 +33,36 @@ export function hhmmToMin(s: string | undefined): number | undefined {
   return Number(m[1]) * 60 + Number(m[2]);
 }
 
+/**
+ * ユーザーの手入力を HH:MM に正規化する。不正なら undefined。
+ *   "0930" / "930" → "09:30"、"9:30" / "09:30" → "09:30"
+ */
+export function parseTimeInput(s: string): string | undefined {
+  const t = s.trim();
+  if (t === "") return undefined;
+
+  // コロン区切り(H:MM / HH:MM)
+  let m = t.match(/^(\d{1,2}):(\d{2})$/);
+  if (m) {
+    const h = Number(m[1]);
+    const min = Number(m[2]);
+    return h < 24 && min < 60
+      ? `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`
+      : undefined;
+  }
+
+  // 数字のみ3〜4桁(HMM / HHMM)。3桁は先頭にゼロを補う
+  m = t.match(/^(\d{3,4})$/);
+  if (m) {
+    const digits = m[1].padStart(4, "0");
+    const h = Number(digits.slice(0, 2));
+    const min = Number(digits.slice(2));
+    return h < 24 && min < 60 ? `${digits.slice(0, 2)}:${digits.slice(2)}` : undefined;
+  }
+
+  return undefined;
+}
+
 /** 分 → "HH:MM"(24時間を超えたら折り返す) */
 export function minToHHMM(min: number): string {
   const m = ((min % 1440) + 1440) % 1440;
