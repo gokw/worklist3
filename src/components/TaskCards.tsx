@@ -47,6 +47,12 @@ export default function TaskCards({
           key={t.id}
           data-task-id={t.id}
           onClick={() => onFocusTask(t.id)}
+          // ダブルクリックで編集(ボタン/入力/リンク上は除外)
+          onDoubleClick={(e) => {
+            if ((e.target as HTMLElement).closest("button, input, select, a, textarea")) return;
+            handlers.onEdit(t);
+          }}
+          title="ダブルクリックで編集"
           className={`rounded-lg border p-3 shadow-sm ${taskBgClass(t)} ${
             t.id === focusedId
               ? "border-blue-600 ring-2 ring-blue-400"

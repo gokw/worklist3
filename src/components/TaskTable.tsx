@@ -89,6 +89,12 @@ export default function TaskTable({
                 key={t.id}
                 data-task-id={t.id}
                 onClick={() => onFocusTask(t.id)}
+                // ダブルクリックで編集(ボタン/入力/リンク上は除外)
+                onDoubleClick={(e) => {
+                  if ((e.target as HTMLElement).closest("button, input, select, a, textarea")) return;
+                  handlers.onEdit(t);
+                }}
+                title="ダブルクリックで編集"
                 className={`${taskBgClass(t)} hover:brightness-95 cursor-default ${
                   focused ? "outline outline-2 -outline-offset-2 outline-blue-600" : ""
                 }`}
