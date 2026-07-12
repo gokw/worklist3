@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutMode, Task, TaskScope, ViewMode, WorkMode } from "./types";
 import { WORK_MODE_LABELS } from "./types";
-import { addToDate, formatMin, nowHHMM, todayStr } from "./lib/date";
+import { addToDate, formatDateJa, formatMin, nowHHMM, todayStr } from "./lib/date";
 import {
   actMin,
   collectCategories,
@@ -488,11 +488,15 @@ export default function App() {
     [visibleTasks, focusedId]
   );
 
-  // ---------- 日付を前後(h/l キー。Issue #7)----------
-  const shiftSelectedDate = useCallback((delta: number) => {
-    setViewMode("today"); // 日付は「今日」ビューで見えるので切替える
-    setSelectedDate((cur) => addToDate(cur, "day", delta));
-  }, []);
+  // ---------- カーソルタスクの日付を前後(h/l キー。Issue #7 / Excel NextDay・PreviousDay 相当)----------
+  const shiftFocusedDate = useCallback(
+    (task: Task, delta: number) => {
+      const newDate = addToDate(task.date ?? todayStr(), "day", delta);
+      upsert([{ ...task, date: newDate, updatedAt: new Date().toISOString() }]);
+      showToast(`${task.title || "(無題)"} → ${formatDateJa(newDate)}`);
+    },
+    [upsert, showToast]
+  );
 
   // ---------- 範囲選択(Shift+クリック / Shift+↑↓。Issue #8)----------
   /** 基準(anchor)から id までの表示順の連続範囲を選択 */
@@ -599,13 +603,15 @@ export default function App() {
           e.preventDefault();
           moveColumn(1);
           break;
-        case "h": // vi風: 前日(Issue #7)
+        case "h": // カーソルタスクの日付を前日へ(Issue #7)
+          if (!focused) break;
           e.preventDefault();
-          shiftSelectedDate(-1);
+          shiftFocusedDate(focused, -1);
           break;
-        case "l": // vi風: 翌日
+        case "l": // カーソルタスクの日付を翌日へ
+          if (!focused) break;
           e.preventDefault();
-          shiftSelectedDate(1);
+          shiftFocusedDate(focused, 1);
           break;
         case "s": // 開始/再開(Excel版 StartTask)
           if (!focused) break;
@@ -685,7 +691,7 @@ export default function App() {
     moveFocus,
     moveColumn,
     extendSelection,
-    shiftSelectedDate,
+    shiftFocusedDate,
     handleStart,
     handleEnd,
     handleToggleWait,
@@ -770,7 +776,7 @@ export default function App() {
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
           <kbd>↑</kbd><kbd>↓</kbd> 行移動 / <kbd>←</kbd><kbd>→</kbd> 列移動(表) /{" "}
-          <kbd>Shift</kbd>+<kbd>↑↓</kbd> 範囲選択 / <kbd>H</kbd> 前日 / <kbd>L</kbd> 翌日 /{" "}
+          <kbd>Shift</kbd>+<kbd>↑↓</kbd> 範囲選択 / <kbd>H</kbd> 日付-1 / <kbd>L</kbd> 日付+1 /{" "}
           <kbd>Enter</kbd> セル編集(列未選択なら詳細) / <kbd>S</kbd> 開始 / <kbd>E</kbd> 終了 /{" "}
           <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ち / <kbd>C</kbd> コピー / <kbd>P</kbd> 延期 /{" "}
           <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
