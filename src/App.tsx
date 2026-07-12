@@ -94,6 +94,9 @@ export default function App() {
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  // インライン編集の保存(1件更新)
+  const handleUpdateTask = useCallback((t: Task) => upsert([t]), [upsert]);
+
   // ---------- フィルタ・並び替え ----------
   /** 現在のモード(仕事/個人/すべて)で表示すべきタスクか。タスク自身の scope で判定 */
   const matchesMode = useCallback(
@@ -537,6 +540,7 @@ export default function App() {
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onToggleWait={handleToggleWait}
+            onUpdateTask={handleUpdateTask}
             focusedId={focusedId}
             onFocusTask={setFocusedId}
             {...actionHandlers}
