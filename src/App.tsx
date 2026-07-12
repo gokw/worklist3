@@ -8,6 +8,7 @@ import { WORK_MODE_LABELS } from "./types";
 import { formatMin, nowHHMM, todayStr } from "./lib/date";
 import {
   actMin,
+  collectCategories,
   createPrepTask,
   createTask,
   createWaitCopy,
@@ -17,6 +18,7 @@ import {
   lastEndTimeOfDay,
   planEnd,
   remainMin,
+  suggestCategoryByTitle,
   setSequentialStart,
   startTask,
   toggleWaiting,
@@ -144,10 +146,7 @@ export default function App() {
     return sortTasks(list);
   }, [tasks, viewMode, selectedDate, categoryFilter, showDone, matchesMode]);
 
-  const categories = useMemo(
-    () => [...new Set(tasks.map((t) => t.category).filter(Boolean))].sort(),
-    [tasks]
-  );
+  const categories = useMemo(() => collectCategories(tasks), [tasks]);
 
   // 集計は現在表示中のタスク(ビュー・モード・絞込を反映)を対象にする
   const totals = useMemo(
@@ -572,6 +571,7 @@ export default function App() {
           task={formTask}
           isNew={formIsNew}
           categories={categories}
+          suggestCategory={(title) => suggestCategoryByTitle(tasks, title)}
           onSave={(t) => {
             upsert([t]);
             setFormTask(null);

@@ -34,6 +34,13 @@ interface Props {
   onStartEdit: () => void;
   onCommit: (raw: string) => void;
   onFinish: (reason: FinishReason) => void;
+  /** 独自エディタ(カテゴリのコンボボックス等)を差し込む場合 */
+  renderEditor?: (api: {
+    value: string;
+    setValue: (v: string) => void;
+    commit: (v: string, reason: FinishReason) => void;
+    cancel: () => void;
+  }) => ReactNode;
 }
 
 export default function EditableCell({
@@ -49,6 +56,7 @@ export default function EditableCell({
   onStartEdit,
   onCommit,
   onFinish,
+  renderEditor,
 }: Props) {
   const [text, setText] = useState(editValue);
   const skipBlur = useRef(false);
@@ -59,6 +67,7 @@ export default function EditableCell({
     if (!editing) return;
     setText(editValue);
     skipBlur.current = false;
+    if (renderEditor) return; // 独自エディタは自前でフォーカスする
     const el = ref.current;
     if (el) {
       el.focus();
@@ -78,6 +87,27 @@ export default function EditableCell({
         }}
       >
         {display}
+      </td>
+    );
+  }
+
+  // 独自エディタ(カテゴリのコンボボックス等)
+  if (renderEditor) {
+    return (
+      <td className={tdClassName} onClick={(e) => e.stopPropagation()}>
+        {renderEditor({
+          value: text,
+          setValue: setText,
+          commit: (v, reason) => {
+            skipBlur.current = true;
+            onCommit(v);
+            onFinish(reason);
+          },
+          cancel: () => {
+            skipBlur.current = true;
+            onFinish("exit");
+          },
+        })}
       </td>
     );
   }

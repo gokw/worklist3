@@ -8,9 +8,10 @@ import type { ReactNode } from "react";
 import type { Importance, Task } from "../types";
 import { ALL_IMPORTANCES, DERIVED_STATUS_LABELS, REPEAT_UNIT_LABELS } from "../types";
 import { formatDateJa, parseTimeInput } from "../lib/date";
-import { actMin, derivedStatus, planEnd, remainMin } from "../lib/logic";
+import { actMin, collectCategories, derivedStatus, planEnd, remainMin } from "../lib/logic";
 import TaskActions, { type TaskActionHandlers } from "./TaskActions";
 import EditableCell, { type FinishReason } from "./EditableCell";
+import CategoryInput from "./CategoryInput";
 import {
   deadlineTextClass,
   importanceBadgeClass,
@@ -154,13 +155,26 @@ export default function TaskTable({
     else setEditing({ id, field: EDIT_ORDER[nextIdx] });
   };
 
+  // 使用中カテゴリ(文字順)。インライン候補に使う
+  const categories = collectCategories(tasks);
+
   /** editableなセルを描く小ヘルパー */
   const cell = (
     task: Task,
     field: EditableField,
     type: "text" | "number" | "time" | "date" | "select",
     display: ReactNode,
-    extra?: { tdClass?: string; options?: { value: string; label: string }[]; placeholder?: string; listId?: string }
+    extra?: {
+      tdClass?: string;
+      options?: { value: string; label: string }[];
+      placeholder?: string;
+      renderEditor?: (api: {
+        value: string;
+        setValue: (v: string) => void;
+        commit: (v: string, reason: FinishReason) => void;
+        cancel: () => void;
+      }) => ReactNode;
+    }
   ) => (
     <EditableCell
       editing={editing?.id === task.id && editing.field === field}
@@ -169,7 +183,7 @@ export default function TaskTable({
       display={display}
       options={extra?.options}
       placeholder={extra?.placeholder}
-      listId={extra?.listId}
+      renderEditor={extra?.renderEditor}
       tdClassName={extra?.tdClass ?? td}
       onStartEdit={() => startEdit(task.id, field)}
       onCommit={(raw) => commit(task, field, raw)}
@@ -344,10 +358,21 @@ export default function TaskTable({
                   tdClass: `${td} ${deadlineTextClass(t)}`,
                 })}
 
-                {/* カテゴリ(インライン・text + 候補) */}
+                {/* カテゴリ(インライン・前方一致コンボボックス) */}
                 {cell(t, "category", "text", t.category, {
-                  placeholder: "運用業務 等",
-                  listId: "category-list",
+                  renderEditor: (api) => (
+                    <CategoryInput
+                      value={api.value}
+                      categories={categories}
+                      onChange={api.setValue}
+                      onCommit={(v) => api.commit(v, "exit")}
+                      onTab={(shift, v) => api.commit(v, shift ? "prev" : "next")}
+                      onCancel={api.cancel}
+                      autoFocus
+                      placeholder="運用業務 等"
+                      className="w-full rounded border border-blue-400 bg-white px-1 py-0.5 text-sm outline-none"
+                    />
+                  ),
                 })}
 
                 {/* 操作 */}
@@ -359,12 +384,6 @@ export default function TaskTable({
           })}
         </tbody>
       </table>
-      {/* カテゴリ入力の候補 */}
-      <datalist id="category-list">
-        {[...new Set(tasks.map((t) => t.category).filter(Boolean))].map((c) => (
-          <option key={c} value={c} />
-        ))}
-      </datalist>
     </div>
   );
 }
