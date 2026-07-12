@@ -50,6 +50,8 @@ interface Props extends TaskActionHandlers {
   /** 選択中のタスクID(選択した順) */
   selectedIds: string[];
   onToggleSelect: (id: string) => void;
+  /** Shift+クリックの範囲選択(基準行〜クリック行)。Issue #8 */
+  onRangeSelectTo: (id: string) => void;
   /** 待ちフラグのトグル(完了タスクは待ちタスクとして複製) */
   onToggleWait: (task: Task) => void;
   /** インライン編集の結果を保存 */
@@ -135,6 +137,7 @@ export default function TaskTable({
   tasks,
   selectedIds,
   onToggleSelect,
+  onRangeSelectTo,
   onToggleWait,
   onUpdateTask,
   focusedId,
@@ -270,9 +273,16 @@ export default function TaskTable({
                     <input
                       type="checkbox"
                       checked={selectedIds.includes(t.id)}
-                      onChange={() => onToggleSelect(t.id)}
-                      onClick={(e) => e.stopPropagation()}
-                      title="選択(連続開始時刻の設定対象。選択した順に番号が付きます)"
+                      onChange={() => {}}
+                      // 選択は onClick で自前処理(既定トグルは止めて二重処理を防ぐ)
+                      // Shift+クリック=範囲選択 / 通常クリック=トグル
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        if (e.shiftKey) onRangeSelectTo(t.id);
+                        else onToggleSelect(t.id);
+                      }}
+                      title="クリックで選択 / Shift+クリックで範囲選択"
                     />
                     {selectedIds.includes(t.id) && (
                       <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">

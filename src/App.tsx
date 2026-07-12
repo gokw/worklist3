@@ -39,6 +39,8 @@ import TaskForm from "./components/TaskForm";
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
+import BulkAddDialog from "./components/BulkAddDialog";
+import type { ParsedRow } from "./lib/bulkParse";
 
 // URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
 const urlInit = readUrlSettings();
@@ -61,6 +63,8 @@ export default function App() {
   const [focusedId, setFocusedId] = useState<string | null>(null);
   /** カーソルの列(Excel風セル移動)。null=行のみ選択 */
   const [focusedField, setFocusedField] = useState<EditableField | null>(null);
+  /** 範囲選択の基準行(Shift+クリック / Shift+↑↓ の起点)。Issue #8 */
+  const [anchorId, setAnchorId] = useState<string | null>(null);
   /** 表の編集中セル(キーボードからも開始できるよう App が保持) */
   const [editingCell, setEditingCell] = useState<EditingCell>(null);
 
@@ -79,6 +83,7 @@ export default function App() {
   const [endTarget, setEndTarget] = useState<Task | null>(null);
   const [seqOpen, setSeqOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -191,6 +196,25 @@ export default function App() {
       setFormIsNew(true);
     },
     [selectedDate, defaultScope]
+  );
+
+  // 複数タスクの一括登録(Issue #9)。日付省略行は選択日、区分は今のビューに合わせる
+  const handleBulkAdd = useCallback(
+    (rows: ParsedRow[]) => {
+      const created = rows.map((r) =>
+        createTask({
+          title: r.title,
+          date: r.date,
+          category: r.category,
+          estimateMin: r.estimateMin,
+          scope: defaultScope,
+        })
+      );
+      if (created.length > 0) upsert(created);
+      setBulkAddOpen(false);
+      showToast(`${created.length}件を登録しました`);
+    },
+    [defaultScope, upsert, showToast]
   );
 
   const openEditForm = useCallback((task: Task) => {
@@ -367,6 +391,7 @@ export default function App() {
   }, []);
 
   const toggleSelect = useCallback((id: string) => {
+    setAnchorId(id); // 範囲選択の基準
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
     );
@@ -423,6 +448,7 @@ export default function App() {
           : Math.min(Math.max(idx + delta, 0), visibleTasks.length - 1);
       const id = visibleTasks[next].id;
       setFocusedId(id);
+      setAnchorId(id); // 次の範囲選択(Shift+↑↓)の基準にする
       // カーソル行(あれば列セル)が画面外なら追従スクロール
       requestAnimationFrame(() => {
         const row = document.querySelector(`[data-task-id="${CSS.escape(id)}"]`);
@@ -462,6 +488,50 @@ export default function App() {
     [visibleTasks, focusedId]
   );
 
+  // ---------- 日付を前後(h/l キー。Issue #7)----------
+  const shiftSelectedDate = useCallback((delta: number) => {
+    setViewMode("today"); // 日付は「今日」ビューで見えるので切替える
+    setSelectedDate((cur) => addToDate(cur, "day", delta));
+  }, []);
+
+  // ---------- 範囲選択(Shift+クリック / Shift+↑↓。Issue #8)----------
+  /** 基準(anchor)から id までの表示順の連続範囲を選択 */
+  const rangeSelectTo = useCallback(
+    (id: string) => {
+      const anchor = anchorId ?? id;
+      const ai = visibleTasks.findIndex((t) => t.id === anchor);
+      const bi = visibleTasks.findIndex((t) => t.id === id);
+      if (ai === -1 || bi === -1) return;
+      const [lo, hi] = ai <= bi ? [ai, bi] : [bi, ai];
+      setSelectedIds(visibleTasks.slice(lo, hi + 1).map((t) => t.id));
+    },
+    [anchorId, visibleTasks]
+  );
+
+  /** Shift+↑↓: カーソルを動かしつつ基準からの範囲を選択 */
+  const extendSelection = useCallback(
+    (delta: number) => {
+      if (visibleTasks.length === 0) return;
+      const curIdx = visibleTasks.findIndex((t) => t.id === focusedId);
+      const from = curIdx === -1 ? 0 : curIdx;
+      const to = Math.min(Math.max(from + delta, 0), visibleTasks.length - 1);
+      const newId = visibleTasks[to].id;
+      setFocusedId(newId);
+      const anchor = anchorId ?? focusedId ?? newId;
+      const ai = visibleTasks.findIndex((t) => t.id === anchor);
+      if (ai !== -1) {
+        const [lo, hi] = ai <= to ? [ai, to] : [to, ai];
+        setSelectedIds(visibleTasks.slice(lo, hi + 1).map((t) => t.id));
+      }
+      requestAnimationFrame(() =>
+        document
+          .querySelector(`[data-task-id="${CSS.escape(newId)}"]`)
+          ?.scrollIntoView({ block: "nearest" })
+      );
+    },
+    [visibleTasks, focusedId, anchorId]
+  );
+
   // ---------- ショートカットキー ----------
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -470,7 +540,15 @@ export default function App() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       // ボタン上のEnter/Spaceはボタン自体の動作を優先(二重発火防止)
       if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
-      if (formTask || interruptTarget || startTarget || endTarget || seqOpen || bulkOpen)
+      if (
+        formTask ||
+        interruptTarget ||
+        startTarget ||
+        endTarget ||
+        seqOpen ||
+        bulkOpen ||
+        bulkAddOpen
+      )
         return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
@@ -503,11 +581,13 @@ export default function App() {
           break;
         case "arrowup":
           e.preventDefault();
-          moveFocus(-1);
+          if (e.shiftKey) extendSelection(-1); // Shift+↑: 範囲選択(Issue #8)
+          else moveFocus(-1);
           break;
         case "arrowdown":
           e.preventDefault();
-          moveFocus(1);
+          if (e.shiftKey) extendSelection(1); // Shift+↓: 範囲選択
+          else moveFocus(1);
           break;
         case "arrowleft": // 表: 左の列へ(Excel風セル移動)Issue #5
           if (layout !== "table") break;
@@ -518,6 +598,14 @@ export default function App() {
           if (layout !== "table") break;
           e.preventDefault();
           moveColumn(1);
+          break;
+        case "h": // vi風: 前日(Issue #7)
+          e.preventDefault();
+          shiftSelectedDate(-1);
+          break;
+        case "l": // vi風: 翌日
+          e.preventDefault();
+          shiftSelectedDate(1);
           break;
         case "s": // 開始/再開(Excel版 StartTask)
           if (!focused) break;
@@ -587,6 +675,7 @@ export default function App() {
     endTarget,
     seqOpen,
     bulkOpen,
+    bulkAddOpen,
     openNewForm,
     handleClipboardImport,
     visibleTasks,
@@ -595,6 +684,8 @@ export default function App() {
     layout,
     moveFocus,
     moveColumn,
+    extendSelection,
+    shiftSelectedDate,
     handleStart,
     handleEnd,
     handleToggleWait,
@@ -638,6 +729,7 @@ export default function App() {
         onShowDoneChange={setShowDone}
         onAdd={() => openNewForm()}
         onClipboardImport={handleClipboardImport}
+        onBulkAdd={() => setBulkAddOpen(true)}
         onRandomStart={handleRandomStart}
         onSequentialStart={handleSequentialStart}
         onBulkEdit={() => selectedIds.length > 0 && setBulkOpen(true)}
@@ -654,6 +746,7 @@ export default function App() {
             tasks={visibleTasks}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
+            onRangeSelectTo={rangeSelectTo}
             onToggleWait={handleToggleWait}
             onUpdateTask={handleUpdateTask}
             focusedId={focusedId}
@@ -677,6 +770,7 @@ export default function App() {
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
           <kbd>↑</kbd><kbd>↓</kbd> 行移動 / <kbd>←</kbd><kbd>→</kbd> 列移動(表) /{" "}
+          <kbd>Shift</kbd>+<kbd>↑↓</kbd> 範囲選択 / <kbd>H</kbd> 前日 / <kbd>L</kbd> 翌日 /{" "}
           <kbd>Enter</kbd> セル編集(列未選択なら詳細) / <kbd>S</kbd> 開始 / <kbd>E</kbd> 終了 /{" "}
           <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ち / <kbd>C</kbd> コピー / <kbd>P</kbd> 延期 /{" "}
           <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
@@ -760,6 +854,13 @@ export default function App() {
           categories={categories}
           onApply={applyBulk}
           onClose={() => setBulkOpen(false)}
+        />
+      )}
+      {bulkAddOpen && (
+        <BulkAddDialog
+          defaultDate={selectedDate}
+          onRegister={handleBulkAdd}
+          onClose={() => setBulkAddOpen(false)}
         />
       )}
 

@@ -25,6 +25,7 @@ interface Props {
   onShowDoneChange: (v: boolean) => void;
   onAdd: () => void;
   onClipboardImport: () => void;
+  onBulkAdd: () => void;
   onRandomStart: () => void;
   onSequentialStart: () => void;
   onBulkEdit: () => void;
@@ -112,6 +113,13 @@ export default function Toolbar(p: Props) {
             title="クリップボードからTeams/予定/テキストを自動判別して取込(ショートカット: V)"
           >
             📋 取込
+          </button>
+          <button
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
+            onClick={p.onBulkAdd}
+            title="テキストを貼り付けて複数タスクを一括登録"
+          >
+            📥 一括登録
           </button>
           <button
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
