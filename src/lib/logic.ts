@@ -9,6 +9,7 @@ import {
   minToHHMM,
   nextWeekdayAfter,
   nowHHMM,
+  parseDateStr,
   todayStr,
 } from "./date";
 
@@ -175,6 +176,33 @@ export function generateNextOccurrence(task: Task): Task {
       ? addToDate(task.deadline, repeat.unit, repeat.interval)
       : undefined,
   });
+}
+
+/**
+ * 定期予定を「完了にせず」次の日程へ延期する(Issue #6)。
+ * 現在の日付を基準に次回の日程へ移動し、実績・待ちはクリア。同じタスクを動かす。
+ */
+export function postponeTask(task: Task): Task {
+  const r = task.repeat;
+  if (!r) return task;
+  const base = task.date ?? todayStr();
+  const nextDate =
+    r.unit === "week" && r.weekdays && r.weekdays.length > 0
+      ? nextWeekdayAfter(base, r.weekdays)
+      : addToDate(base, r.unit, r.interval);
+  // 期限は移動した日数分だけ一緒にずらす
+  const shiftDays = Math.round(
+    (parseDateStr(nextDate).getTime() - parseDateStr(base).getTime()) / 86400000
+  );
+  return {
+    ...task,
+    date: nextDate,
+    actStart: undefined,
+    actEnd: undefined,
+    waiting: false,
+    deadline: task.deadline ? addToDate(task.deadline, "day", shiftDays) : undefined,
+    updatedAt: new Date().toISOString(),
+  };
 }
 
 // ---------- 中断(割り込み) Excel InterruputTask 踏襲 ----------

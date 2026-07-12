@@ -3,7 +3,6 @@
 //   よく直す列はセルをクリックしてその場で編集(インライン編集)。
 //   メモ/リンク/繰り返し等の詳細は ✎ / Enter / 詳細ダイアログで編集する。
 // ==============================================================
-import { useState } from "react";
 import type { ReactNode } from "react";
 import type { Importance, Task } from "../types";
 import { ALL_IMPORTANCES, DERIVED_STATUS_LABELS, REPEAT_UNIT_LABELS } from "../types";
@@ -19,8 +18,8 @@ import {
   taskBgClass,
 } from "./rowStyle";
 
-/** インライン編集できる項目(Tab移動の並び順もこの順) */
-type EditableField =
+/** インライン編集できる項目(Tab移動・カーソル左右の並び順もこの順) */
+export type EditableField =
   | "date"
   | "title"
   | "importance"
@@ -31,7 +30,7 @@ type EditableField =
   | "deadline"
   | "category";
 
-const EDIT_ORDER: EditableField[] = [
+export const EDIT_ORDER: EditableField[] = [
   "date",
   "title",
   "importance",
@@ -42,6 +41,9 @@ const EDIT_ORDER: EditableField[] = [
   "deadline",
   "category",
 ];
+
+/** 表の編集中セル(行ID＋項目) */
+export type EditingCell = { id: string; field: EditableField } | null;
 
 interface Props extends TaskActionHandlers {
   tasks: Task[];
@@ -54,7 +56,14 @@ interface Props extends TaskActionHandlers {
   onUpdateTask: (task: Task) => void;
   /** キーボードカーソル位置のタスクID */
   focusedId: string | null;
+  /** キーボードカーソルの列(Excel風セル移動)。null=列未選択 */
+  focusedField: EditableField | null;
+  /** セルへフォーカス(行ID＋項目を同時に更新) */
+  onFocusCell: (id: string, field: EditableField) => void;
   onFocusTask: (id: string) => void;
+  /** 編集中セル(App が保持し、キーボードからも開始できるよう制御化) */
+  editing: EditingCell;
+  onEditingChange: (e: EditingCell) => void;
 }
 
 const th = "border-b border-gray-300 bg-gray-700 px-2 py-1.5 text-left text-xs font-semibold text-white whitespace-nowrap";
@@ -129,14 +138,16 @@ export default function TaskTable({
   onToggleWait,
   onUpdateTask,
   focusedId,
+  focusedField,
+  onFocusCell,
   onFocusTask,
+  editing,
+  onEditingChange,
   ...handlers
 }: Props) {
-  const [editing, setEditing] = useState<{ id: string; field: EditableField } | null>(null);
-
   const startEdit = (id: string, field: EditableField) => {
-    onFocusTask(id);
-    setEditing({ id, field });
+    onFocusCell(id, field);
+    onEditingChange({ id, field });
   };
 
   const commit = (task: Task, field: EditableField, raw: string) => {
@@ -146,13 +157,20 @@ export default function TaskTable({
 
   const finish = (id: string, field: EditableField, reason: FinishReason) => {
     if (reason === "exit") {
-      setEditing(null);
+      onEditingChange(null);
+      onFocusCell(id, field); // 編集を抜けてもそのセルにカーソルを残す
       return;
     }
     const idx = EDIT_ORDER.indexOf(field);
     const nextIdx = reason === "next" ? idx + 1 : idx - 1;
-    if (nextIdx < 0 || nextIdx >= EDIT_ORDER.length) setEditing(null);
-    else setEditing({ id, field: EDIT_ORDER[nextIdx] });
+    if (nextIdx < 0 || nextIdx >= EDIT_ORDER.length) {
+      onEditingChange(null);
+      onFocusCell(id, field);
+    } else {
+      const nextField = EDIT_ORDER[nextIdx];
+      onEditingChange({ id, field: nextField });
+      onFocusCell(id, nextField);
+    }
   };
 
   // 使用中カテゴリ(文字順)。インライン候補に使う
@@ -178,6 +196,12 @@ export default function TaskTable({
   ) => (
     <EditableCell
       editing={editing?.id === task.id && editing.field === field}
+      focused={
+        focusedId === task.id &&
+        focusedField === field &&
+        !(editing?.id === task.id && editing.field === field)
+      }
+      dataField={field}
       type={type}
       editValue={editValueOf(task, field)}
       display={display}
