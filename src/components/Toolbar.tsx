@@ -27,6 +27,9 @@ interface Props {
   onClipboardImport: () => void;
   onRandomStart: () => void;
   onSequentialStart: () => void;
+  onBulkEdit: () => void;
+  onSelectAllVisible: () => void;
+  onClearSelection: () => void;
   selectedCount: number;
   onExport: () => void;
   totals: { estimate: number; actual: number; remain: number };
@@ -124,6 +127,14 @@ export default function Toolbar(p: Props) {
             title="選択したタスクに、見積を積み上げて連続の開始予定時刻を設定"
           >
             ⏱ 連続時刻 ({p.selectedCount})
+          </button>
+          <button
+            className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:border-gray-300 disabled:bg-white disabled:text-gray-400"
+            disabled={p.selectedCount === 0}
+            onClick={p.onBulkEdit}
+            title="選択したタスクの項目(日付・期限・カテゴリ・重要度・区分)をまとめて変更"
+          >
+            ✏️ 一括編集 ({p.selectedCount})
           </button>
           <button
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
@@ -237,6 +248,26 @@ export default function Toolbar(p: Props) {
             />
             完了も表示
           </label>
+        )}
+
+        <span className="mx-1 text-gray-300">|</span>
+
+        {/* 選択操作(一括編集・連続時刻の対象) */}
+        <button
+          className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs text-gray-600 hover:bg-gray-100"
+          onClick={p.onSelectAllVisible}
+          title="表示中のタスクをすべて選択"
+        >
+          全選択
+        </button>
+        {p.selectedCount > 0 && (
+          <button
+            className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs text-gray-600 hover:bg-gray-100"
+            onClick={p.onClearSelection}
+            title="選択を解除"
+          >
+            選択解除 ({p.selectedCount})
+          </button>
         )}
       </div>
     </div>
