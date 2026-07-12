@@ -19,6 +19,27 @@ export function parseDateStr(s: string): Date {
   return new Date(y, m - 1, d);
 }
 
+/**
+ * いろいろな日付表記を YYYY-MM-DD に正規化(貼り付け取込用。Issue #9)。
+ *   2026-07-15 / 2026/7/15 / 26/7/15 / 7/15(今年) に対応。不正なら undefined。
+ */
+export function parseFlexibleDate(s: string): string | undefined {
+  const t = s.trim();
+  if (!t) return undefined;
+  const build = (y: number, mo: number, d: number): string | undefined =>
+    mo >= 1 && mo <= 12 && d >= 1 && d <= 31
+      ? `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`
+      : undefined;
+
+  let m = t.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return build(+m[1], +m[2], +m[3]);
+  m = t.match(/^(\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return build(2000 + +m[1], +m[2], +m[3]);
+  m = t.match(/^(\d{1,2})[-/.](\d{1,2})$/);
+  if (m) return build(new Date().getFullYear(), +m[1], +m[2]);
+  return undefined;
+}
+
 /** 現在時刻を HH:MM で返す */
 export function nowHHMM(): string {
   const d = new Date();
