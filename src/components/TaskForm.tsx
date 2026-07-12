@@ -89,7 +89,16 @@ export default function TaskForm({
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl mt-6">
+      <div
+        className="w-full max-w-2xl rounded-lg bg-white p-5 shadow-xl mt-6"
+        // フォーム内のどこにフォーカスがあっても Ctrl/⌘+Enter で一発保存
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+      >
         <h2 className="mb-3 text-lg font-bold text-gray-800">
           {isNew ? "タスクを追加" : "タスクを編集"}
         </h2>
@@ -102,12 +111,11 @@ export default function TaskForm({
             className={inputCls}
             value={draft.title}
             onChange={(e) => set("title", e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit();
-            }}
             placeholder="やること・やりたいことを自由に書き出す"
           />
-          <p className="mt-0.5 text-[11px] text-gray-400">Ctrl+Enter で保存</p>
+          <p className="mt-0.5 text-[11px] text-gray-400">
+            <kbd>Ctrl</kbd>+<kbd>Enter</kbd> で保存 / <kbd>Esc</kbd> で閉じる
+          </p>
         </div>
 
         {/* トグル類: 仕事/個人 と 待ち */}
@@ -389,8 +397,9 @@ export default function TaskForm({
             <button
               className="rounded bg-blue-600 px-4 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
               onClick={submit}
+              title="Ctrl+Enter でも保存できます"
             >
-              保存
+              保存 (Ctrl+Enter)
             </button>
           </div>
         </div>
