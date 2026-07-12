@@ -34,12 +34,13 @@ import TimeInputDialog from "./components/TimeInputDialog";
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => repository.load());
   const [selectedDate, setSelectedDate] = useState(todayStr());
-  const [viewMode, setViewMode] = useState<ViewMode>("dayAll");
+  const [viewMode, setViewMode] = useState<ViewMode>("todayOnward");
   const [layout, setLayout] = useState<LayoutMode>(
     () => (localStorage.getItem("worklist3.layout") as LayoutMode) || "table"
   );
   const [categoryFilter, setCategoryFilter] = useState("");
-  const [showDone, setShowDone] = useState(true);
+  // 今日/今日以降/予定では完了を既定で隠す(やることに集中。トグルで表示可)
+  const [showDone, setShowDone] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   /** キーボード操作のカーソル位置(Excel版のアクティブセル行に相当) */
   const [focusedId, setFocusedId] = useState<string | null>(null);
@@ -99,16 +100,42 @@ export default function App() {
   );
 
   const visibleTasks = useMemo(() => {
+    const today = todayStr();
+    // 繰越 = 前日以前の日付で、まだ終わっていないタスク(忘れ防止で今日系ビューに出す)
+    const isCarryover = (t: Task) => !!t.date && t.date < today && !t.actEnd;
+
     let list = tasks.filter(matchesMode);
-    if (viewMode === "dayAll") {
-      // その日のタスクすべて = 日付一致 + 日付未設定(毎日扱い)
-      list = list.filter((t) => !t.date || t.date === selectedDate);
-    } else if (viewMode === "dayPlanned") {
-      // その日の予定 = 日時(日付+時刻)が設定されているもののみ
-      list = list.filter((t) => t.date === selectedDate && !!t.planStart);
+    switch (viewMode) {
+      case "today":
+        // 選択日のタスク(日付一致＋毎日)。選択日が今日なら繰越も混ぜる
+        list = list.filter(
+          (t) =>
+            !t.date ||
+            t.date === selectedDate ||
+            (selectedDate === today && isCarryover(t))
+        );
+        break;
+      case "todayOnward":
+        // 今日以降(＋毎日)＋繰越
+        list = list.filter((t) => !t.date || t.date >= today || isCarryover(t));
+        break;
+      case "planned":
+        // 今日以降で開始予定時刻あり ＋ 繰越(忘れ防止)
+        list = list.filter(
+          (t) => (!!t.planStart && (!t.date || t.date >= today)) || isCarryover(t)
+        );
+        break;
+      case "done":
+        list = list.filter((t) => !!t.actEnd);
+        break;
+      case "everything":
+        break;
     }
     if (categoryFilter) list = list.filter((t) => t.category === categoryFilter);
-    if (!showDone) list = list.filter((t) => !t.actEnd);
+    // 完了の表示制御: done は完了のみ / everything は全部 / それ以外はトグル次第
+    if (viewMode !== "done" && viewMode !== "everything" && !showDone) {
+      list = list.filter((t) => !t.actEnd);
+    }
     return sortTasks(list);
   }, [tasks, viewMode, selectedDate, categoryFilter, showDone, matchesMode]);
 
@@ -117,17 +144,15 @@ export default function App() {
     [tasks]
   );
 
-  // その日の集計(Excel版 B2:B4 相当)。モード絞込も反映する
-  const totals = useMemo(() => {
-    const dayTasks = tasks.filter(
-      (t) => (!t.date || t.date === selectedDate) && matchesMode(t)
-    );
-    return {
-      estimate: dayTasks.filter((t) => !t.actEnd).reduce((s, t) => s + t.estimateMin, 0),
-      actual: dayTasks.reduce((s, t) => s + (actMin(t) ?? 0), 0),
-      remain: dayTasks.reduce((s, t) => s + remainMin(t), 0),
-    };
-  }, [tasks, selectedDate, matchesMode]);
+  // 集計は現在表示中のタスク(ビュー・モード・絞込を反映)を対象にする
+  const totals = useMemo(
+    () => ({
+      estimate: visibleTasks.filter((t) => !t.actEnd).reduce((s, t) => s + t.estimateMin, 0),
+      actual: visibleTasks.reduce((s, t) => s + (actMin(t) ?? 0), 0),
+      remain: visibleTasks.reduce((s, t) => s + remainMin(t), 0),
+    }),
+    [visibleTasks]
+  );
 
   // ---------- タスク操作 ----------
   // 新規タスクの既定 scope = 今のビュー(すべてビューのときは仕事)
@@ -290,6 +315,12 @@ export default function App() {
     showToast(`${targets.length}件に連続の開始予定時刻を設定しました`);
   }, [visibleTasks, selectedIds, upsert, showToast]);
 
+  // ビュー切替。「今日」を選んだら選択日を今日に戻す
+  const changeView = useCallback((v: ViewMode) => {
+    setViewMode(v);
+    if (v === "today") setSelectedDate(todayStr());
+  }, []);
+
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -411,6 +442,8 @@ export default function App() {
           }
           break;
         case "arrowleft": {
+          // 日付移動は「今日」ビューで効くので、必要なら切替える
+          setViewMode("today");
           const d = new Date(selectedDate);
           d.setDate(d.getDate() - 1);
           setSelectedDate(
@@ -419,6 +452,7 @@ export default function App() {
           break;
         }
         case "arrowright": {
+          setViewMode("today");
           const d = new Date(selectedDate);
           d.setDate(d.getDate() + 1);
           setSelectedDate(
@@ -471,7 +505,7 @@ export default function App() {
           showToast(`モード: ${WORK_MODE_LABELS[m]}`);
         }}
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
+        onViewModeChange={changeView}
         layout={layout}
         onLayoutChange={setLayout}
         categories={categories}
