@@ -15,7 +15,8 @@ import {
 
 interface Props extends TaskActionHandlers {
   tasks: Task[];
-  selectedIds: Set<string>;
+  /** 選択中のタスクID(選択した順) */
+  selectedIds: string[];
   onToggleSelect: (id: string) => void;
   /** 待ちフラグのトグル(完了タスクは待ちタスクとして複製) */
   onToggleWait: (task: Task) => void;
@@ -93,12 +94,19 @@ export default function TaskTable({
                 }`}
               >
                 <td className={td}>
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(t.id)}
-                    onChange={() => onToggleSelect(t.id)}
-                    title="選択(連続開始時刻の設定対象)"
-                  />
+                  <span className="inline-flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.includes(t.id)}
+                      onChange={() => onToggleSelect(t.id)}
+                      title="選択(連続開始時刻の設定対象。選択した順に番号が付きます)"
+                    />
+                    {selectedIds.includes(t.id) && (
+                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                        {selectedIds.indexOf(t.id) + 1}
+                      </span>
+                    )}
+                  </span>
                 </td>
                 <td className={td}>{t.date ? formatDateJa(t.date) : "毎日"}</td>
                 <td className={`${td} text-center`} title={t.scope === "work" ? "仕事" : "個人"}>

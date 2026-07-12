@@ -15,7 +15,8 @@ import {
 
 interface Props extends TaskActionHandlers {
   tasks: Task[];
-  selectedIds: Set<string>;
+  /** 選択中のタスクID(選択した順) */
+  selectedIds: string[];
   /** 待ちフラグのトグル(完了タスクは待ちタスクとして複製) */
   onToggleWait: (task: Task) => void;
   /** キーボードカーソル位置のタスクID */
@@ -49,7 +50,7 @@ export default function TaskCards({
           className={`rounded-lg border p-3 shadow-sm ${taskBgClass(t)} ${
             t.id === focusedId
               ? "border-blue-600 ring-2 ring-blue-400"
-              : selectedIds.has(t.id)
+              : selectedIds.includes(t.id)
                 ? "border-blue-300"
                 : "border-gray-200"
           }`}
@@ -57,6 +58,14 @@ export default function TaskCards({
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
+                {selectedIds.includes(t.id) && (
+                  <span
+                    className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-600 text-[11px] font-bold text-white"
+                    title="連続時刻の設定順"
+                  >
+                    {selectedIds.indexOf(t.id) + 1}
+                  </span>
+                )}
                 <span
                   className={`inline-block w-6 rounded text-center text-xs font-bold ${importanceBadgeClass(t.importance)}`}
                 >

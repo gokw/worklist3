@@ -5,6 +5,7 @@
 import { useEffect, useState } from "react";
 import type { RepeatConfig, Task, TaskScope } from "../types";
 import { ALL_IMPORTANCES, REPEAT_UNIT_LABELS, SCOPE_LABELS, WEEKDAY_LABELS } from "../types";
+import TimeField from "./TimeField";
 
 interface Props {
   task: Task;
@@ -208,12 +209,12 @@ export default function TaskForm({
             </div>
             <div>
               <label className={labelCls}>開始予定時刻</label>
-              <input
-                type="time"
+              <TimeField
                 className={inputCls}
-                value={draft.planStart ?? ""}
-                onChange={(e) => set("planStart", e.target.value || undefined)}
+                value={draft.planStart}
+                onChange={(v) => set("planStart", v)}
               />
+              <p className="mt-0.5 text-[11px] text-gray-400">数字4桁(例 0930)</p>
             </div>
             <div>
               <label className={labelCls}>期限(いつまでに)</label>
@@ -233,20 +234,18 @@ export default function TaskForm({
           <div className="grid grid-cols-2 gap-4 sm:max-w-sm">
             <div>
               <label className={labelCls}>開始実績</label>
-              <input
-                type="time"
+              <TimeField
                 className={inputCls}
-                value={draft.actStart ?? ""}
-                onChange={(e) => set("actStart", e.target.value || undefined)}
+                value={draft.actStart}
+                onChange={(v) => set("actStart", v)}
               />
             </div>
             <div>
               <label className={labelCls}>終了実績</label>
-              <input
-                type="time"
+              <TimeField
                 className={inputCls}
-                value={draft.actEnd ?? ""}
-                onChange={(e) => set("actEnd", e.target.value || undefined)}
+                value={draft.actEnd}
+                onChange={(v) => set("actEnd", v)}
               />
             </div>
           </div>
