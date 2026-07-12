@@ -9,7 +9,7 @@ import { formatMin, nowHHMM, todayStr } from "./lib/date";
 import {
   actMin,
   collectCategories,
-  createPrepTask,
+  copyTask,
   createTask,
   createWaitCopy,
   derivedStatus,
@@ -223,17 +223,13 @@ export default function App() {
     [interruptTarget, upsert, showToast]
   );
 
-  const handlePrep = useCallback(
+  // タスクを複製(実行状態はリセットした新規タスク)。Issue #1
+  const handleCopy = useCallback(
     (task: Task) => {
-      const input = window.prompt(`「${task.title}」の準備時間(分)を入力してください`, "15");
-      if (input === null) return;
-      const min = Number(input);
-      if (Number.isNaN(min) || min <= 0) {
-        showToast("数値(分)を入力してください");
-        return;
-      }
-      upsert([createPrepTask(task, min)]);
-      showToast(`準備タスクを追加しました(${min}分)`);
+      const copy = copyTask(task);
+      upsert([copy]);
+      setFocusedId(copy.id);
+      showToast(`コピーしました: ${task.title}`);
     },
     [upsert, showToast]
   );
@@ -432,6 +428,11 @@ export default function App() {
           if (running) setInterruptTarget(focused);
           else showToast("実行中のタスクのみ中断できます");
           break;
+        case "c": // コピー(複製)
+          if (!focused) break;
+          e.preventDefault();
+          handleCopy(focused);
+          break;
         case "enter": // 編集
           if (!focused) break;
           e.preventDefault();
@@ -488,6 +489,7 @@ export default function App() {
     handleStart,
     handleEnd,
     handleToggleWait,
+    handleCopy,
     openEditForm,
     toggleSelect,
     remove,
@@ -500,7 +502,7 @@ export default function App() {
     onStart: handleStart,
     onEnd: handleEnd,
     onInterrupt: setInterruptTarget,
-    onPrep: handlePrep,
+    onCopy: handleCopy,
     onEdit: openEditForm,
   };
 
@@ -558,7 +560,7 @@ export default function App() {
         <p className="mt-6 text-center text-[11px] text-gray-400">
           <kbd>↑</kbd><kbd>↓</kbd> タスク選択 / <kbd>S</kbd> 開始・再開 / <kbd>E</kbd> 終了 /{" "}
           <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ちON/OFF(完了タスクは待ちとして複製) /{" "}
-          <kbd>Enter</kbd> 編集 / <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
+          <kbd>C</kbd> コピー / <kbd>Enter</kbd> 編集 / <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
           <br />
           <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 / <kbd>M</kbd> 仕事⇔個人モード /{" "}
           <kbd>T</kbd> 表⇔カード切替 / <kbd>←</kbd><kbd>→</kbd> 日付移動

@@ -265,19 +265,22 @@ export function createWaitCopy(task: Task): Task {
   });
 }
 
-// ---------- 分解 ----------
+// ---------- 複製 ----------
 
-/** 「準備」タスクを追加(例: 会議に対する準備時間) */
-export function createPrepTask(parent: Task, estimateMin: number): Task {
+/** タスクを複製する(実行状態はリセットした新規タスク)。Issue #1 */
+export function copyTask(task: Task): Task {
   return createTask({
-    title: `【準備】${parent.title}`,
-    scope: parent.scope,
-    category: parent.category,
-    importance: parent.importance,
-    date: parent.date,
-    estimateMin,
-    deadline: parent.deadline,
-    parentId: parent.id,
+    title: task.title,
+    scope: task.scope,
+    category: task.category,
+    importance: task.importance,
+    date: task.date,
+    planStart: task.planStart,
+    estimateMin: task.estimateMin,
+    deadline: task.deadline,
+    repeat: task.repeat,
+    memos: [...task.memos],
+    links: [...task.links],
   });
 }
 

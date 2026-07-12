@@ -7,7 +7,7 @@ export interface TaskActionHandlers {
   onStart: (task: Task) => void;
   onEnd: (task: Task) => void;
   onInterrupt: (task: Task) => void;
-  onPrep: (task: Task) => void;
+  onCopy: (task: Task) => void;
   onEdit: (task: Task) => void;
 }
 
@@ -23,7 +23,7 @@ export default function TaskActions({
   onStart,
   onEnd,
   onInterrupt,
-  onPrep,
+  onCopy,
   onEdit,
 }: Props) {
   const running = !!task.actStart && !task.actEnd;
@@ -58,18 +58,16 @@ export default function TaskActions({
           </button>
         </>
       )}
-      {!done && (
-        <button
-          className={`${btn} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`}
-          title="準備タスクを追加"
-          onClick={() => onPrep(task)}
-        >
-          準備
-        </button>
-      )}
       <button
         className={`${btn} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`}
-        title="編集"
+        title="このタスクを複製(Cキー)"
+        onClick={() => onCopy(task)}
+      >
+        ⧉ コピー
+      </button>
+      <button
+        className={`${btn} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`}
+        title="編集(Enter)"
         onClick={() => onEdit(task)}
       >
         ✎
