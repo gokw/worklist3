@@ -41,7 +41,8 @@ export default function App() {
   const [categoryFilter, setCategoryFilter] = useState("");
   // 今日/今日以降/予定では完了を既定で隠す(やることに集中。トグルで表示可)
   const [showDone, setShowDone] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  // 選択したタスクID。選択した順を保つため配列で持つ(連続時刻を選択順に設定するため)
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   /** キーボード操作のカーソル位置(Excel版のアクティブセル行に相当) */
   const [focusedId, setFocusedId] = useState<string | null>(null);
 
@@ -57,6 +58,7 @@ export default function App() {
   const [interruptTarget, setInterruptTarget] = useState<Task | null>(null);
   const [startTarget, setStartTarget] = useState<Task | null>(null);
   const [endTarget, setEndTarget] = useState<Task | null>(null);
+  const [seqOpen, setSeqOpen] = useState(false);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -301,19 +303,27 @@ export default function App() {
   }, [showToast]);
 
   // 連続開始時刻セット(Excel版 SetSequentialStartHHMM 踏襲)
+  //   選択した順に、見積を積み上げて開始予定時刻を割り当てる。
+  //   まず時刻入力ダイアログ(4桁)を開き、確定後に処理する。
   const handleSequentialStart = useCallback(() => {
-    const targets = visibleTasks.filter((t) => selectedIds.has(t.id));
-    if (targets.length === 0) return;
-    const input = window.prompt("最初の開始時刻を入力してください(HH:MM)", nowHHMM());
-    if (input === null) return;
-    if (!/^\d{1,2}:\d{2}$/.test(input.trim())) {
-      showToast("HH:MM形式で入力してください(例 09:30)");
-      return;
-    }
-    upsert(setSequentialStart(targets, input.trim()));
-    setSelectedIds(new Set());
-    showToast(`${targets.length}件に連続の開始予定時刻を設定しました`);
-  }, [visibleTasks, selectedIds, upsert, showToast]);
+    if (selectedIds.length === 0) return;
+    setSeqOpen(true);
+  }, [selectedIds]);
+
+  const doSequentialStart = useCallback(
+    (firstStart: string) => {
+      // 選択順(selectedIds の並び)にタスクを並べる
+      const byId = new Map(tasks.map((t) => [t.id, t]));
+      const targets = selectedIds
+        .map((id) => byId.get(id))
+        .filter((t): t is Task => !!t);
+      if (targets.length > 0) upsert(setSequentialStart(targets, firstStart));
+      setSeqOpen(false);
+      setSelectedIds([]);
+      showToast(`${targets.length}件に選択した順で開始予定時刻を設定しました`);
+    },
+    [tasks, selectedIds, upsert, showToast]
+  );
 
   // ビュー切替。「今日」を選んだら選択日を今日に戻す
   const changeView = useCallback((v: ViewMode) => {
@@ -322,12 +332,9 @@ export default function App() {
   }, []);
 
   const toggleSelect = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
   }, []);
 
   // ---------- カーソル移動(↑↓キー) ----------
@@ -361,7 +368,7 @@ export default function App() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       // ボタン上のEnter/Spaceはボタン自体の動作を優先(二重発火防止)
       if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
-      if (formTask || interruptTarget || startTarget || endTarget) return;
+      if (formTask || interruptTarget || startTarget || endTarget || seqOpen) return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -469,6 +476,7 @@ export default function App() {
     interruptTarget,
     startTarget,
     endTarget,
+    seqOpen,
     openNewForm,
     handleClipboardImport,
     selectedDate,
@@ -517,7 +525,7 @@ export default function App() {
         onClipboardImport={handleClipboardImport}
         onRandomStart={handleRandomStart}
         onSequentialStart={handleSequentialStart}
-        selectedCount={selectedIds.size}
+        selectedCount={selectedIds.length}
         onExport={() => exportTasksAsJson(tasks)}
         totals={totals}
       />
@@ -609,6 +617,16 @@ export default function App() {
           confirmLabel="終了"
           onConfirm={(time) => doEnd(endTarget, time)}
           onClose={() => setEndTarget(null)}
+        />
+      )}
+      {seqOpen && (
+        <TimeInputDialog
+          title="連続開始時刻の設定"
+          message={`選択した ${selectedIds.length} 件に、選択した順で見積を積み上げて開始予定時刻を割り当てます。最初の開始時刻を入力してください。`}
+          defaultValue={nowHHMM()}
+          confirmLabel="設定"
+          onConfirm={doSequentialStart}
+          onClose={() => setSeqOpen(false)}
         />
       )}
 

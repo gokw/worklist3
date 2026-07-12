@@ -40,7 +40,8 @@ export default function TimeInputDialog({
   onConfirm,
   onClose,
 }: Props) {
-  const [value, setValue] = useState(defaultValue ?? nowHHMM());
+  // 表示・入力はコロンなしの数字4桁で統一
+  const [value, setValue] = useState((defaultValue ?? nowHHMM()).replace(":", ""));
   const [error, setError] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -61,7 +62,7 @@ export default function TimeInputDialog({
   const submit = () => {
     const parsed = parseTimeInput(value);
     if (!parsed) {
-      setError("時刻の形式が正しくありません(例: 0930 または 9:30)");
+      setError("0000〜2359の数字4桁で入力してください(例: 0930)");
       return;
     }
     onConfirm(parsed);
@@ -82,8 +83,10 @@ export default function TimeInputDialog({
           ref={inputRef}
           className="w-full rounded border border-gray-300 px-3 py-2 text-center text-lg tracking-widest focus:border-blue-500 focus:outline-none"
           value={value}
+          maxLength={4}
           onChange={(e) => {
-            setValue(e.target.value);
+            // 数字だけ・最大4桁(コロンは打てない)
+            setValue(e.target.value.replace(/[^\d]/g, "").slice(0, 4));
             setError("");
           }}
           onKeyDown={(e) => {
@@ -95,11 +98,15 @@ export default function TimeInputDialog({
         {error ? (
           <p className="mt-1 text-[11px] text-red-600">{error}</p>
         ) : (
-          <p className="mt-1 text-[11px] text-gray-400">数字4桁(例 0930)または H:MM で入力</p>
+          <p className="mt-1 text-[11px] text-gray-400">数字4桁(例 0930)。0000〜2359</p>
         )}
 
         <div className="mt-3 flex flex-wrap gap-1">
-          <button type="button" className={quickBtn} onClick={() => setValue(nowHHMM())}>
+          <button
+            type="button"
+            className={quickBtn}
+            onClick={() => setValue(nowHHMM().replace(":", ""))}
+          >
             現在時刻
           </button>
           {quickButtons
@@ -109,7 +116,7 @@ export default function TimeInputDialog({
                 key={b.label}
                 type="button"
                 className={quickBtn}
-                onClick={() => setValue(b.value)}
+                onClick={() => setValue(b.value.replace(":", ""))}
               >
                 {b.label}
               </button>
