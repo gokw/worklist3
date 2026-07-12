@@ -17,6 +17,7 @@ import {
   interruptTask,
   lastEndTimeOfDay,
   planEnd,
+  postponeTask,
   remainMin,
   suggestCategoryByTitle,
   setSequentialStart,
@@ -26,31 +27,46 @@ import {
 import { parseClipboardText } from "./lib/clipboard";
 import { sortTasks } from "./lib/sort";
 import { exportTasksAsJson, repository } from "./lib/storage";
+import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import Toolbar from "./components/Toolbar";
-import TaskTable from "./components/TaskTable";
+import TaskTable, {
+  EDIT_ORDER,
+  type EditableField,
+  type EditingCell,
+} from "./components/TaskTable";
 import TaskCards from "./components/TaskCards";
 import TaskForm from "./components/TaskForm";
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 
+// URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
+const urlInit = readUrlSettings();
+
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => repository.load());
   const [selectedDate, setSelectedDate] = useState(todayStr());
-  const [viewMode, setViewMode] = useState<ViewMode>("todayOnward");
+  // 標準は「今日以降」。URLで上書き可
+  const [viewMode, setViewMode] = useState<ViewMode>(urlInit.view ?? "todayOnward");
+  // 標準は「表形式」。URL > localStorage > 既定
   const [layout, setLayout] = useState<LayoutMode>(
-    () => (localStorage.getItem("worklist3.layout") as LayoutMode) || "table"
+    () => urlInit.layout ?? ((localStorage.getItem("worklist3.layout") as LayoutMode) || "table")
   );
-  const [categoryFilter, setCategoryFilter] = useState("");
-  // 今日/今日以降/予定では完了を既定で隠す(やることに集中。トグルで表示可)
-  const [showDone, setShowDone] = useState(false);
+  const [categoryFilter, setCategoryFilter] = useState(urlInit.category ?? "");
+  // 標準は「完了も表示」。URLで上書き可(Issue #4)
+  const [showDone, setShowDone] = useState(urlInit.showDone ?? true);
   // 選択したタスクID。選択した順を保つため配列で持つ(連続時刻を選択順に設定するため)
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   /** キーボード操作のカーソル位置(Excel版のアクティブセル行に相当) */
   const [focusedId, setFocusedId] = useState<string | null>(null);
+  /** カーソルの列(Excel風セル移動)。null=行のみ選択 */
+  const [focusedField, setFocusedField] = useState<EditableField | null>(null);
+  /** 表の編集中セル(キーボードからも開始できるよう App が保持) */
+  const [editingCell, setEditingCell] = useState<EditingCell>(null);
 
-  // 仕事/個人モード(前回のモードを記憶)。scope を絞り込むビュー
+  // 仕事/個人モード。URL > 前回のモード > すべて
   const [mode, setMode] = useState<WorkMode>(() => {
+    if (urlInit.mode) return urlInit.mode;
     const saved = localStorage.getItem("worklist3.mode");
     return saved === "work" || saved === "personal" ? saved : "all";
   });
@@ -78,6 +94,11 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem("worklist3.mode", mode);
   }, [mode]);
+
+  // 現在の表示状態をURLへ反映(ブックマーク・共有できるように)。Issue #4
+  useEffect(() => {
+    writeUrlSettings({ mode, view: viewMode, layout, showDone, category: categoryFilter });
+  }, [mode, viewMode, layout, showDone, categoryFilter]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -236,6 +257,20 @@ export default function App() {
     [upsert, showToast]
   );
 
+  // 定期予定を完了にせず次の日程へ延期(Issue #6)
+  const handlePostpone = useCallback(
+    (task: Task) => {
+      if (!task.repeat) {
+        showToast("繰り返し設定のあるタスクだけ延期できます");
+        return;
+      }
+      const moved = postponeTask(task);
+      upsert([moved]);
+      showToast(`次の日程へ延期しました: ${moved.date}`);
+    },
+    [upsert, showToast]
+  );
+
   /**
    * 待ちトグル(Excel版 WaitTask 踏襲):
    *   未完了タスク → 待ちフラグのON/OFF
@@ -388,11 +423,40 @@ export default function App() {
           : Math.min(Math.max(idx + delta, 0), visibleTasks.length - 1);
       const id = visibleTasks[next].id;
       setFocusedId(id);
-      // カーソル行が画面外なら追従スクロール
+      // カーソル行(あれば列セル)が画面外なら追従スクロール
       requestAnimationFrame(() => {
-        document
-          .querySelector(`[data-task-id="${CSS.escape(id)}"]`)
-          ?.scrollIntoView({ block: "nearest" });
+        const row = document.querySelector(`[data-task-id="${CSS.escape(id)}"]`);
+        const cell = focusedField
+          ? row?.querySelector(`[data-field="${focusedField}"]`)
+          : null;
+        (cell ?? row)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    },
+    [visibleTasks, focusedId, focusedField]
+  );
+
+  // ---------- カーソル列移動(←→キー。Excel風セル移動)Issue #5 ----------
+  const onFocusCell = useCallback((id: string, field: EditableField) => {
+    setFocusedId(id);
+    setFocusedField(field);
+  }, []);
+
+  const moveColumn = useCallback(
+    (delta: number) => {
+      if (visibleTasks.length === 0) return;
+      // 行が未選択なら先頭行を選ぶ
+      const id = focusedId ?? visibleTasks[0].id;
+      if (focusedId == null) setFocusedId(id);
+      setFocusedField((prev) => {
+        const idx = prev == null ? (delta > 0 ? -1 : EDIT_ORDER.length) : EDIT_ORDER.indexOf(prev);
+        const nextIdx = Math.min(Math.max(idx + delta, 0), EDIT_ORDER.length - 1);
+        const field = EDIT_ORDER[nextIdx];
+        requestAnimationFrame(() => {
+          document
+            .querySelector(`[data-task-id="${CSS.escape(id)}"] [data-field="${field}"]`)
+            ?.scrollIntoView({ block: "nearest", inline: "nearest" });
+        });
+        return field;
       });
     },
     [visibleTasks, focusedId]
@@ -445,6 +509,16 @@ export default function App() {
           e.preventDefault();
           moveFocus(1);
           break;
+        case "arrowleft": // 表: 左の列へ(Excel風セル移動)Issue #5
+          if (layout !== "table") break;
+          e.preventDefault();
+          moveColumn(-1);
+          break;
+        case "arrowright": // 表: 右の列へ
+          if (layout !== "table") break;
+          e.preventDefault();
+          moveColumn(1);
+          break;
         case "s": // 開始/再開(Excel版 StartTask)
           if (!focused) break;
           e.preventDefault();
@@ -474,10 +548,20 @@ export default function App() {
           e.preventDefault();
           handleCopy(focused);
           break;
-        case "enter": // 編集
+        case "p": // 定期予定を次の日程へ延期
           if (!focused) break;
           e.preventDefault();
-          openEditForm(focused);
+          if (focused.repeat) handlePostpone(focused);
+          else showToast("繰り返し設定のあるタスクだけ延期できます");
+          break;
+        case "enter": // 表: カーソルのセルを編集。列未選択や表以外は詳細編集
+          if (!focused) break;
+          e.preventDefault();
+          if (layout === "table" && focusedField) {
+            setEditingCell({ id: focused.id, field: focusedField });
+          } else {
+            openEditForm(focused);
+          }
           break;
         case " ": // 連続時刻設定などの選択トグル
           if (!focused) break;
@@ -492,25 +576,6 @@ export default function App() {
             showToast("削除しました");
           }
           break;
-        case "arrowleft": {
-          // 日付移動は「今日」ビューで効くので、必要なら切替える
-          setViewMode("today");
-          const d = new Date(selectedDate);
-          d.setDate(d.getDate() - 1);
-          setSelectedDate(
-            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-          );
-          break;
-        }
-        case "arrowright": {
-          setViewMode("today");
-          const d = new Date(selectedDate);
-          d.setDate(d.getDate() + 1);
-          setSelectedDate(
-            `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
-          );
-          break;
-        }
       }
     };
     window.addEventListener("keydown", handler);
@@ -524,14 +589,17 @@ export default function App() {
     bulkOpen,
     openNewForm,
     handleClipboardImport,
-    selectedDate,
     visibleTasks,
     focusedId,
+    focusedField,
+    layout,
     moveFocus,
+    moveColumn,
     handleStart,
     handleEnd,
     handleToggleWait,
     handleCopy,
+    handlePostpone,
     openEditForm,
     toggleSelect,
     remove,
@@ -545,6 +613,7 @@ export default function App() {
     onEnd: handleEnd,
     onInterrupt: setInterruptTarget,
     onCopy: handleCopy,
+    onPostpone: handlePostpone,
     onEdit: openEditForm,
   };
 
@@ -588,7 +657,11 @@ export default function App() {
             onToggleWait={handleToggleWait}
             onUpdateTask={handleUpdateTask}
             focusedId={focusedId}
+            focusedField={focusedField}
+            onFocusCell={onFocusCell}
             onFocusTask={setFocusedId}
+            editing={editingCell}
+            onEditingChange={setEditingCell}
             {...actionHandlers}
           />
         ) : (
@@ -603,12 +676,13 @@ export default function App() {
         )}
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
-          <kbd>↑</kbd><kbd>↓</kbd> タスク選択 / <kbd>S</kbd> 開始・再開 / <kbd>E</kbd> 終了 /{" "}
-          <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ちON/OFF(完了タスクは待ちとして複製) /{" "}
-          <kbd>C</kbd> コピー / <kbd>Enter</kbd> 編集 / <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
+          <kbd>↑</kbd><kbd>↓</kbd> 行移動 / <kbd>←</kbd><kbd>→</kbd> 列移動(表) /{" "}
+          <kbd>Enter</kbd> セル編集(列未選択なら詳細) / <kbd>S</kbd> 開始 / <kbd>E</kbd> 終了 /{" "}
+          <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ち / <kbd>C</kbd> コピー / <kbd>P</kbd> 延期 /{" "}
+          <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
           <br />
           <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 / <kbd>M</kbd> 仕事⇔個人モード /{" "}
-          <kbd>T</kbd> 表⇔カード切替 / <kbd>←</kbd><kbd>→</kbd> 日付移動
+          <kbd>T</kbd> 表⇔カード切替
         </p>
       </main>
 

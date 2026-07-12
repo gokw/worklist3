@@ -8,6 +8,7 @@ export interface TaskActionHandlers {
   onEnd: (task: Task) => void;
   onInterrupt: (task: Task) => void;
   onCopy: (task: Task) => void;
+  onPostpone: (task: Task) => void;
   onEdit: (task: Task) => void;
 }
 
@@ -24,6 +25,7 @@ export default function TaskActions({
   onEnd,
   onInterrupt,
   onCopy,
+  onPostpone,
   onEdit,
 }: Props) {
   const running = !!task.actStart && !task.actEnd;
@@ -57,6 +59,15 @@ export default function TaskActions({
             ⚡ 中断
           </button>
         </>
+      )}
+      {task.repeat && !done && (
+        <button
+          className={`${btn} border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100`}
+          title="完了にせず次の日程へ延期(Pキー)"
+          onClick={() => onPostpone(task)}
+        >
+          ⏭ 次へ
+        </button>
       )}
       <button
         className={`${btn} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`}

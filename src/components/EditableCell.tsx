@@ -21,6 +21,10 @@ interface Option {
 
 interface Props {
   editing: boolean;
+  /** キーボードカーソルが乗っているセル(未編集時にハイライト) */
+  focused?: boolean;
+  /** カーソル移動・スクロール用の項目名 */
+  dataField?: string;
   type: EditorType;
   /** 編集開始時の初期文字列(time は数字4桁) */
   editValue: string;
@@ -45,6 +49,8 @@ interface Props {
 
 export default function EditableCell({
   editing,
+  focused,
+  dataField,
   type,
   editValue,
   display,
@@ -79,7 +85,10 @@ export default function EditableCell({
   if (!editing) {
     return (
       <td
-        className={`${tdClassName} cursor-text hover:bg-blue-50`}
+        data-field={dataField}
+        className={`${tdClassName} cursor-text hover:bg-blue-50 ${
+          focused ? "ring-2 ring-inset ring-blue-500" : ""
+        }`}
         title={title ?? "クリックで編集"}
         onClick={(e) => {
           e.stopPropagation();
@@ -94,7 +103,7 @@ export default function EditableCell({
   // 独自エディタ(カテゴリのコンボボックス等)
   if (renderEditor) {
     return (
-      <td className={tdClassName} onClick={(e) => e.stopPropagation()}>
+      <td data-field={dataField} className={tdClassName} onClick={(e) => e.stopPropagation()}>
         {renderEditor({
           value: text,
           setValue: setText,
@@ -226,7 +235,7 @@ export default function EditableCell({
   }
 
   return (
-    <td className={tdClassName} onClick={stop}>
+    <td data-field={dataField} className={tdClassName} onClick={stop}>
       {editor}
     </td>
   );
