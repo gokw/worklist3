@@ -12,6 +12,30 @@ import {
   todayStr,
 } from "./date";
 
+/**
+ * 入力タイトルに「部分一致」する既存タスクのうち、最近更新されたもののカテゴリを返す。
+ * 見つからなければ空文字。新規タスクのカテゴリ初期値の推測に使う(Issue #2)。
+ */
+export function suggestCategoryByTitle(tasks: Task[], title: string): string {
+  const t = title.trim();
+  if (t.length < 2) return ""; // 短すぎる入力では推測しない
+  const matches = tasks
+    .filter((x) => {
+      if (!x.category || !x.title) return false;
+      // 互いに含み合う関係(どちらかが2文字以上)なら「類似」とみなす
+      return (x.title.length >= 2 && t.includes(x.title)) || x.title.includes(t);
+    })
+    .sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1)); // 新しい順
+  return matches[0]?.category ?? "";
+}
+
+/** 使用中のカテゴリを文字順で返す(重複除去・空除去) */
+export function collectCategories(tasks: Task[]): string[] {
+  return [...new Set(tasks.map((t) => t.category).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "ja")
+  );
+}
+
 export function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }

@@ -6,11 +6,14 @@ import { useEffect, useState } from "react";
 import type { RepeatConfig, Task, TaskScope } from "../types";
 import { ALL_IMPORTANCES, REPEAT_UNIT_LABELS, SCOPE_LABELS, WEEKDAY_LABELS } from "../types";
 import TimeField from "./TimeField";
+import CategoryInput from "./CategoryInput";
 
 interface Props {
   task: Task;
   isNew: boolean;
   categories: string[];
+  /** タイトルから類似タスクのカテゴリを推測(Issue #2。無ければ空文字) */
+  suggestCategory: (title: string) => string;
   onSave: (task: Task) => void;
   onDelete: (id: string) => void;
   onClose: () => void;
@@ -24,6 +27,7 @@ export default function TaskForm({
   task,
   isNew,
   categories,
+  suggestCategory,
   onSave,
   onDelete,
   onClose,
@@ -33,6 +37,16 @@ export default function TaskForm({
   const [repeat, setRepeat] = useState<RepeatConfig>(
     task.repeat ?? { mode: "schedule", unit: "day", interval: 1, copyPlanStart: false }
   );
+  // カテゴリをユーザーが自分で触ったか(触るまではタイトルから自動推測する)
+  const [categoryTouched, setCategoryTouched] = useState(!isNew || task.category !== "");
+
+  // 新規タスクで未タッチのうちは、タイトルに応じてカテゴリを自動セット(Issue #2)
+  useEffect(() => {
+    if (isNew && !categoryTouched) {
+      const s = suggestCategory(draft.title);
+      setDraft((d) => (d.category === s ? d : { ...d, category: s }));
+    }
+  }, [draft.title, isNew, categoryTouched, suggestCategory]);
 
   // Escで閉じる
   useEffect(() => {
@@ -160,20 +174,19 @@ export default function TaskForm({
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <div className="col-span-2">
             <label className={labelCls}>カテゴリ(分類・集計用)</label>
-            <input
-              className={inputCls}
-              list="category-list"
+            <CategoryInput
               value={draft.category}
-              onChange={(e) => set("category", e.target.value)}
+              categories={categories}
+              onChange={(v) => set("category", v)}
+              onTouch={() => setCategoryTouched(true)}
+              className={inputCls}
               placeholder="運用業務 / 稟議チェック 等"
             />
-            <datalist id="category-list">
-              {categories
-                .filter((c, i, a) => c && a.indexOf(c) === i)
-                .map((c) => (
-                  <option key={c} value={c} />
-                ))}
-            </datalist>
+            {isNew && !categoryTouched && draft.category && (
+              <p className="mt-0.5 text-[11px] text-gray-400">
+                タイトルから推測: {draft.category}(変更できます)
+              </p>
+            )}
           </div>
           <div>
             <label className={labelCls}>重要度</label>
