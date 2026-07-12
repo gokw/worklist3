@@ -1,9 +1,13 @@
 // ==============================================================
 // ツールバー: 日付移動・仕事/個人モード・表示切替・カテゴリ絞込・各種操作
 // ==============================================================
+import { useState } from "react";
 import type { LayoutMode, ViewMode, WorkMode } from "../types";
-import { WORK_MODE_LABELS } from "../types";
+import { VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
+
+/** ドロップダウン(その他)にまとめるビュー */
+const DROPDOWN_VIEWS: ViewMode[] = ["today", "done", "everything"];
 
 interface Props {
   selectedDate: string;
@@ -43,6 +47,9 @@ const modeChip = (m: WorkMode, active: boolean) => {
 };
 
 export default function Toolbar(p: Props) {
+  const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const dropdownActive = DROPDOWN_VIEWS.includes(p.viewMode);
+
   const shiftDate = (days: number) => {
     const d = new Date(p.selectedDate);
     d.setDate(d.getDate() + days);
@@ -57,28 +64,31 @@ export default function Toolbar(p: Props) {
       <div className="flex flex-wrap items-center gap-2">
         <h1 className="mr-2 text-lg font-bold text-gray-800">worklist3</h1>
 
-        <div className="flex items-center gap-1">
-          <button className={chip(false)} onClick={() => shiftDate(-1)} title="前日(←キー)">
-            ◀
-          </button>
-          <input
-            type="date"
-            className="rounded border border-gray-300 px-2 py-1 text-sm"
-            value={p.selectedDate}
-            onChange={(e) => e.target.value && p.onDateChange(e.target.value)}
-          />
-          <button className={chip(false)} onClick={() => shiftDate(1)} title="翌日(→キー)">
-            ▶
-          </button>
-          {p.selectedDate !== todayStr() && (
-            <button className={chip(false)} onClick={() => p.onDateChange(todayStr())}>
-              今日へ
+        {/* 日付ナビは「今日」ビューのときだけ(特定日を見る用) */}
+        {p.viewMode === "today" && (
+          <div className="flex items-center gap-1">
+            <button className={chip(false)} onClick={() => shiftDate(-1)} title="前日(←キー)">
+              ◀
             </button>
-          )}
-          <span className="ml-1 text-sm font-semibold text-gray-700">
-            {formatDateJa(p.selectedDate)}
-          </span>
-        </div>
+            <input
+              type="date"
+              className="rounded border border-gray-300 px-2 py-1 text-sm"
+              value={p.selectedDate}
+              onChange={(e) => e.target.value && p.onDateChange(e.target.value)}
+            />
+            <button className={chip(false)} onClick={() => shiftDate(1)} title="翌日(→キー)">
+              ▶
+            </button>
+            {p.selectedDate !== todayStr() && (
+              <button className={chip(false)} onClick={() => p.onDateChange(todayStr())}>
+                今日へ
+              </button>
+            )}
+            <span className="ml-1 text-sm font-semibold text-gray-700">
+              {p.selectedDate === todayStr() ? "今日" : formatDateJa(p.selectedDate)}
+            </span>
+          </div>
+        )}
 
         <span className="ml-2 text-xs text-gray-500">
           見積 {formatMin(p.totals.estimate) || "0m"} / 実績 {formatMin(p.totals.actual) || "0m"} / 残り{" "}
@@ -143,22 +153,52 @@ export default function Toolbar(p: Props) {
 
         <span className="mx-1 text-gray-300">|</span>
 
-        <div className="flex gap-1">
-          <button className={chip(p.viewMode === "dayAll")} onClick={() => p.onViewModeChange("dayAll")}>
-            この日のタスクすべて
+        {/* ビュー選択: 単独[今日以降][予定] + ドロップダウン[今日/完了/全期間] */}
+        <div className="flex items-center gap-1">
+          <button
+            className={chip(p.viewMode === "todayOnward")}
+            onClick={() => p.onViewModeChange("todayOnward")}
+            title="今日以降のタスク＋繰越(普段使い)"
+          >
+            今日以降
           </button>
           <button
-            className={chip(p.viewMode === "dayPlanned")}
-            onClick={() => p.onViewModeChange("dayPlanned")}
+            className={chip(p.viewMode === "planned")}
+            onClick={() => p.onViewModeChange("planned")}
+            title="今日以降で時刻が決まっている予定＋繰越"
           >
-            この日の予定のみ
+            予定
           </button>
-          <button
-            className={chip(p.viewMode === "everything")}
-            onClick={() => p.onViewModeChange("everything")}
-          >
-            全期間
-          </button>
+          <div className="relative">
+            <button
+              className={chip(dropdownActive)}
+              onClick={() => setViewMenuOpen((o) => !o)}
+              title="今日 / 完了 / 全期間"
+            >
+              {dropdownActive ? VIEW_MODE_LABELS[p.viewMode] : "その他"} ▾
+            </button>
+            {viewMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setViewMenuOpen(false)} />
+                <div className="absolute left-0 top-9 z-50 w-32 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
+                  {DROPDOWN_VIEWS.map((v) => (
+                    <button
+                      key={v}
+                      className={`block w-full px-3 py-1.5 text-left text-sm hover:bg-gray-100 ${
+                        p.viewMode === v ? "font-semibold text-blue-600" : "text-gray-700"
+                      }`}
+                      onClick={() => {
+                        p.onViewModeChange(v);
+                        setViewMenuOpen(false);
+                      }}
+                    >
+                      {VIEW_MODE_LABELS[v]}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
 
         <span className="mx-1 text-gray-300">|</span>
@@ -187,14 +227,17 @@ export default function Toolbar(p: Props) {
           ))}
         </select>
 
-        <label className="flex items-center gap-1 text-xs text-gray-600">
-          <input
-            type="checkbox"
-            checked={p.showDone}
-            onChange={(e) => p.onShowDoneChange(e.target.checked)}
-          />
-          完了も表示
-        </label>
+        {/* 完了も表示: 完了/全期間ビューでは意味がないので隠す */}
+        {p.viewMode !== "done" && p.viewMode !== "everything" && (
+          <label className="flex items-center gap-1 text-xs text-gray-600">
+            <input
+              type="checkbox"
+              checked={p.showDone}
+              onChange={(e) => p.onShowDoneChange(e.target.checked)}
+            />
+            完了も表示
+          </label>
+        )}
       </div>
     </div>
   );

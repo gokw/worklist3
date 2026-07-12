@@ -78,8 +78,23 @@ export interface Task {
   updatedAt: string;
 }
 
-/** 表示ビュー: その日のすべて / その日の予定(時刻あり)のみ / 全期間 */
-export type ViewMode = "dayAll" | "dayPlanned" | "everything";
+/**
+ * 表示ビュー(よく使う組み合わせのプリセット)
+ *   today       … 今日(選択日)のタスク全て + 繰越(前日以前の未完了)
+ *   todayOnward … 今日以降のタスク全て + 繰越(既定)
+ *   planned     … 今日以降で開始予定時刻ありのみ + 繰越
+ *   done        … 完了したものだけ(全期間・分析用)
+ *   everything  … すべて(棚卸し用)
+ */
+export type ViewMode = "today" | "todayOnward" | "planned" | "done" | "everything";
+
+export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
+  today: "今日",
+  todayOnward: "今日以降",
+  planned: "予定",
+  done: "完了",
+  everything: "全期間",
+};
 
 /**
  * タスクが仕事のものか個人のものか(scope)。カテゴリとは独立した軸。
