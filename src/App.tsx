@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LayoutMode, Task, TaskScope, ViewMode, WorkMode } from "./types";
 import { WORK_MODE_LABELS } from "./types";
-import { formatMin, nowHHMM, todayStr } from "./lib/date";
+import { addToDate, formatMin, nowHHMM, todayStr } from "./lib/date";
 import {
   actMin,
   collectCategories,
@@ -32,6 +32,7 @@ import TaskCards from "./components/TaskCards";
 import TaskForm from "./components/TaskForm";
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
+import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => repository.load());
@@ -61,6 +62,7 @@ export default function App() {
   const [startTarget, setStartTarget] = useState<Task | null>(null);
   const [endTarget, setEndTarget] = useState<Task | null>(null);
   const [seqOpen, setSeqOpen] = useState(false);
+  const [bulkOpen, setBulkOpen] = useState(false);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -335,6 +337,44 @@ export default function App() {
     );
   }, []);
 
+  const clearSelection = useCallback(() => setSelectedIds([]), []);
+  const selectAllVisible = useCallback(
+    () => setSelectedIds(visibleTasks.map((t) => t.id)),
+    [visibleTasks]
+  );
+
+  // 一括編集(Issue #3): 選択タスクへ、チェックした項目だけ適用する
+  const applyBulk = useCallback(
+    (changes: BulkChanges) => {
+      const today = todayStr();
+      const sel = new Set(selectedIds);
+      const updated = tasks
+        .filter((t) => sel.has(t.id))
+        .map((t) => {
+          const patch: Partial<Task> = {};
+          if (changes.date) {
+            if (changes.date.kind === "set") {
+              patch.date = changes.date.value;
+            } else if (changes.date.by === "today") {
+              patch.date = today;
+            } else {
+              patch.date = addToDate(t.date ?? today, "day", changes.date.by);
+            }
+          }
+          if (changes.deadline) patch.deadline = changes.deadline.value;
+          if (changes.category !== undefined) patch.category = changes.category;
+          if (changes.importance !== undefined) patch.importance = changes.importance;
+          if (changes.scope !== undefined) patch.scope = changes.scope;
+          return { ...t, ...patch, updatedAt: new Date().toISOString() };
+        });
+      if (updated.length > 0) upsert(updated);
+      setBulkOpen(false);
+      setSelectedIds([]);
+      showToast(`${updated.length}件を一括更新しました`);
+    },
+    [tasks, selectedIds, upsert, showToast]
+  );
+
   // ---------- カーソル移動(↑↓キー) ----------
   const moveFocus = useCallback(
     (delta: number) => {
@@ -366,7 +406,8 @@ export default function App() {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       // ボタン上のEnter/Spaceはボタン自体の動作を優先(二重発火防止)
       if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
-      if (formTask || interruptTarget || startTarget || endTarget || seqOpen) return;
+      if (formTask || interruptTarget || startTarget || endTarget || seqOpen || bulkOpen)
+        return;
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -480,6 +521,7 @@ export default function App() {
     startTarget,
     endTarget,
     seqOpen,
+    bulkOpen,
     openNewForm,
     handleClipboardImport,
     selectedDate,
@@ -529,6 +571,9 @@ export default function App() {
         onClipboardImport={handleClipboardImport}
         onRandomStart={handleRandomStart}
         onSequentialStart={handleSequentialStart}
+        onBulkEdit={() => selectedIds.length > 0 && setBulkOpen(true)}
+        onSelectAllVisible={selectAllVisible}
+        onClearSelection={clearSelection}
         selectedCount={selectedIds.length}
         onExport={() => exportTasksAsJson(tasks)}
         totals={totals}
@@ -633,6 +678,14 @@ export default function App() {
           confirmLabel="設定"
           onConfirm={doSequentialStart}
           onClose={() => setSeqOpen(false)}
+        />
+      )}
+      {bulkOpen && (
+        <BulkEditDialog
+          count={selectedIds.length}
+          categories={categories}
+          onApply={applyBulk}
+          onClose={() => setBulkOpen(false)}
         />
       )}
 
