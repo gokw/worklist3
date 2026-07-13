@@ -1,7 +1,7 @@
 // ==============================================================
 // ツールバー: 日付移動・仕事/個人モード・表示切替・カテゴリ絞込・各種操作
 // ==============================================================
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { LayoutMode, ViewMode, WorkMode } from "../types";
 import { LAYOUT_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
@@ -33,6 +33,8 @@ interface Props {
   onClearSelection: () => void;
   selectedCount: number;
   onExport: () => void;
+  /** JSONファイルからの一括インポート(Issue #12) */
+  onImportFile: (file: File) => void;
   totals: { estimate: number; actual: number; remain: number };
 }
 
@@ -52,6 +54,8 @@ const modeChip = (m: WorkMode, active: boolean) => {
 
 export default function Toolbar(p: Props) {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
+  const [dataMenuOpen, setDataMenuOpen] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
   const dropdownActive = DROPDOWN_VIEWS.includes(p.viewMode);
 
   const shiftDate = (days: number) => {
@@ -99,7 +103,7 @@ export default function Toolbar(p: Props) {
           {formatMin(p.totals.remain) || "0m"}
         </span>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="relative ml-auto flex flex-wrap items-center gap-2">
           <button
             className="rounded bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
             onClick={p.onAdd}
@@ -146,11 +150,46 @@ export default function Toolbar(p: Props) {
           </button>
           <button
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
-            onClick={p.onExport}
-            title="全タスクをJSONファイルにバックアップ"
+            onClick={() => setDataMenuOpen((o) => !o)}
+            title="データのエクスポート/インポート"
           >
-            💾
+            💾 ▾
           </button>
+          {/* データメニュー(エクスポート/インポート)。Issue #12 */}
+          {dataMenuOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setDataMenuOpen(false)} />
+              <div className="absolute right-0 top-10 z-50 w-60 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
+                <button
+                  className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    p.onExport();
+                    setDataMenuOpen(false);
+                  }}
+                >
+                  ⬇ エクスポート(JSONを保存)
+                </button>
+                <button
+                  className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => fileRef.current?.click()}
+                >
+                  ⬆ インポート(JSONを読込)
+                </button>
+              </div>
+            </>
+          )}
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              if (f) p.onImportFile(f);
+              e.target.value = ""; // 同じファイルを再選択できるように
+              setDataMenuOpen(false);
+            }}
+          />
         </div>
       </div>
 
