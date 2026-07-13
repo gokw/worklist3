@@ -47,11 +47,12 @@ function loadLegacyCategoryModes(): Record<string, string> {
 }
 
 /**
- * 旧形式データの変換。
+ * 旧形式データの変換(インポートでも使うため公開)。
  *  - 初期版は status(5値)を持っていた → 「待ち」フラグ + 実績からの自動判定に変更
  *  - scope(仕事/個人)未導入だった → 追加。旧「カテゴリ→モード」設定があれば踏襲、無ければ仕事
+ *  - 欠けている必須フィールドは安全な既定値で補完(手書きJSONの取込にも耐える)
  */
-function migrate(raw: Record<string, unknown>): Task {
+export function migrateTask(raw: Record<string, unknown>): Task {
   const t = { ...raw } as unknown as Task & { status?: string };
   if (t.waiting === undefined) {
     t.waiting = t.status === "waiting";
@@ -63,8 +64,19 @@ function migrate(raw: Record<string, unknown>): Task {
     const legacy = loadLegacyCategoryModes();
     t.scope = legacy[t.category] === "personal" ? "personal" : "work";
   }
+  // 欠損フィールドの補完
+  if (typeof t.category !== "string") t.category = "";
+  if (!t.importance) t.importance = "C";
+  if (typeof t.estimateMin !== "number" || !Number.isFinite(t.estimateMin)) t.estimateMin = 0;
+  if (!Array.isArray(t.memos)) t.memos = ["", "", ""];
+  if (!Array.isArray(t.links)) t.links = [];
+  if (typeof t.waiting !== "boolean") t.waiting = false;
+  if (!t.createdAt) t.createdAt = new Date().toISOString();
+  if (!t.updatedAt) t.updatedAt = t.createdAt;
   return t;
 }
+
+const migrate = migrateTask;
 
 export const repository: TaskRepository = new LocalStorageRepository();
 

@@ -26,7 +26,7 @@ import {
 } from "./lib/logic";
 import { parseClipboardText } from "./lib/clipboard";
 import { sortTasks } from "./lib/sort";
-import { exportTasksAsJson, repository } from "./lib/storage";
+import { exportTasksAsJson, migrateTask, repository } from "./lib/storage";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import Toolbar from "./components/Toolbar";
 import TaskTable, {
@@ -40,6 +40,7 @@ import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 import BulkAddDialog from "./components/BulkAddDialog";
+import ImportResultDialog, { type ImportResult } from "./components/ImportResultDialog";
 import type { ParsedRow } from "./lib/bulkParse";
 
 // URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
@@ -84,6 +85,7 @@ export default function App() {
   const [seqOpen, setSeqOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
+  const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [toast, setToast] = useState("");
   const toastTimer = useRef<number | undefined>(undefined);
 
@@ -215,6 +217,47 @@ export default function App() {
       showToast(`${created.length}件を登録しました`);
     },
     [defaultScope, upsert, showToast]
+  );
+
+  // JSONファイルからの一括インポート(Issue #12)。
+  // 同じIDが既にあるものは重複としてスキップし、結果ダイアログで件数と内容を知らせる。
+  const handleImportFile = useCallback(
+    async (file: File) => {
+      try {
+        const raw = JSON.parse(await file.text());
+        if (!Array.isArray(raw)) {
+          showToast("インポート失敗: JSONがタスクの配列ではありません");
+          return;
+        }
+        const existing = new Set(tasks.map((t) => t.id));
+        const added: Task[] = [];
+        const duplicates: string[] = [];
+        let invalid = 0;
+        for (const item of raw) {
+          if (
+            !item ||
+            typeof item !== "object" ||
+            typeof item.id !== "string" ||
+            typeof item.title !== "string"
+          ) {
+            invalid++;
+            continue;
+          }
+          const t = migrateTask(item);
+          if (existing.has(t.id)) {
+            duplicates.push(t.title);
+          } else {
+            existing.add(t.id);
+            added.push(t);
+          }
+        }
+        if (added.length > 0) upsert(added);
+        setImportResult({ total: raw.length, added: added.length, duplicates, invalid });
+      } catch {
+        showToast("インポート失敗: JSONとして読み込めませんでした");
+      }
+    },
+    [tasks, upsert, showToast]
   );
 
   const openEditForm = useCallback((task: Task) => {
@@ -551,7 +594,8 @@ export default function App() {
         endTarget ||
         seqOpen ||
         bulkOpen ||
-        bulkAddOpen
+        bulkAddOpen ||
+        importResult
       )
         return;
 
@@ -684,6 +728,7 @@ export default function App() {
     seqOpen,
     bulkOpen,
     bulkAddOpen,
+    importResult,
     openNewForm,
     handleClipboardImport,
     visibleTasks,
@@ -745,6 +790,7 @@ export default function App() {
         onClearSelection={clearSelection}
         selectedCount={selectedIds.length}
         onExport={() => exportTasksAsJson(tasks)}
+        onImportFile={handleImportFile}
         totals={totals}
       />
 
@@ -871,6 +917,9 @@ export default function App() {
           onRegister={handleBulkAdd}
           onClose={() => setBulkAddOpen(false)}
         />
+      )}
+      {importResult && (
+        <ImportResultDialog result={importResult} onClose={() => setImportResult(null)} />
       )}
 
       {/* トースト通知 */}
