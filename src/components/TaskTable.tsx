@@ -76,6 +76,11 @@ interface Props extends TaskActionHandlers {
 const HEADERS_NORMAL = ["", "日付", "区分", "ステータス", "繰返", "タスク名", "重要度", "見積", "開始予定", "終了予定", "開始", "終了", "実績", "残り", "期限", "カテゴリ", "操作"] as const;
 const HEADERS_DENSE = ["", "日付", "区", "状", "繰", "タスク名", "重", "見", "予定", "終予", "開始", "終了", "実", "残", "期限", "分類", ""] as const;
 
+// 列幅(px)。タスク名(index 5)は undefined=可変で残り幅を独占して最大化する。
+// 日付・繰返は詰め、時刻/数値は桁に必要な最小幅にする。
+const COLW_DENSE:  (number | undefined)[] = [28, 56, 20, 22, 22, undefined, 22, 34, 46, 46, 46, 46, 34, 34, 56, 84, 96];
+const COLW_NORMAL: (number | undefined)[] = [40, 78, 40, 68, 84, undefined, 48, 52, 72, 72, 60, 60, 48, 48, 78, 116, 210];
+
 function repeatLabel(task: Task): string {
   if (!task.repeat) return "";
   const r = task.repeat;
@@ -248,13 +253,21 @@ export default function TaskTable({
     );
   }
 
+  const colw = dense ? COLW_DENSE : COLW_NORMAL;
+
   return (
-    <div className="overflow-x-auto rounded border border-gray-300 shadow-sm">
-      <table className="w-full border-collapse bg-white">
+    // ヘッダー固定のため、この枠内で縦横スクロールさせる(画面高いっぱい)
+    <div className="max-h-[calc(100vh-8.5rem)] overflow-auto rounded border border-gray-300 shadow-sm">
+      <table className="w-full table-fixed border-collapse bg-white">
+        <colgroup>
+          {colw.map((w, i) => (
+            <col key={i} style={w ? { width: w } : undefined} />
+          ))}
+        </colgroup>
         <thead>
           <tr>
             {headers.map((h, i) => (
-              <th key={i} className={th}>
+              <th key={i} className={`${th} sticky top-0 z-10`}>
                 {h}
               </th>
             ))}
@@ -348,16 +361,13 @@ export default function TaskTable({
                   <td className={`${td} text-xs text-gray-500`}>{repeatLabel(t)}</td>
                 )}
 
-                {/* タスク名(インライン)。ライトは1行に切り詰め(ホバーで全文) */}
+                {/* タスク名(インライン)。必ず1行に切り詰め、溢れはホバーで全文 */}
                 {cell(
                   t,
                   "title",
                   "text",
-                  <span
-                    className={dense ? "flex max-w-[24rem] items-center" : "whitespace-normal"}
-                    title={dense ? t.title : undefined}
-                  >
-                    <span className={`${t.actEnd ? "line-through" : ""} ${dense ? "truncate" : ""}`}>
+                  <span className="flex w-full min-w-0 items-center" title={t.title}>
+                    <span className={`min-w-0 truncate ${t.actEnd ? "line-through" : ""}`}>
                       {t.parentId && <span className="text-gray-400">└ </span>}
                       {t.title || <span className="text-gray-300">(無題)</span>}
                     </span>
@@ -384,7 +394,7 @@ export default function TaskTable({
                       </span>
                     )}
                   </span>,
-                  { tdClass: `${td} max-w-xs`, placeholder: "タスク名" }
+                  { tdClass: `${td} overflow-hidden`, placeholder: "タスク名" }
                 )}
 
                 {/* 重要度(インライン・セレクト) */}
