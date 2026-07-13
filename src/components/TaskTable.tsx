@@ -5,8 +5,7 @@
 //   dense=true は「表形式ライト」(Issue #10): Excel並みの高密度表示。
 //     行高を約2/3に・見出しを圧縮・記号化・等幅数字で桁揃え・操作はアイコンのみ。
 // ==============================================================
-import { useEffect, useState } from "react";
-import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import type { Importance, Task } from "../types";
 import { ALL_IMPORTANCES, DERIVED_STATUS_LABELS, REPEAT_UNIT_LABELS } from "../types";
 import { formatDateJa, parseTimeInput } from "../lib/date";
@@ -80,15 +79,15 @@ interface Props extends TaskActionHandlers {
 const HEADERS_NORMAL = ["", "日付", "区分", "ステータス", "重要度", "繰返", "タスク名", "見積", "開始予定", "終了予定", "開始", "終了", "実績", "期限", "カテゴリ", "操作"] as const;
 const HEADERS_DENSE = ["", "日付", "区", "状", "重", "繰", "タスク名", "見", "予定", "終予", "開始", "終了", "実", "期限", "分類", ""] as const;
 
-// 列幅(px)。タスク名(TITLE_COL)は既定 undefined=可変で残り幅を独占して最大化。
-// 利用者がD&Dで変更した場合はその幅を使う(localStorageに記憶)。
+// 列幅(px)。タスク名(TITLE_COL)は undefined=可変で残り幅を独占し、
+// ウィンドウ幅いっぱいまで自動で伸びる(横スクロールは最低幅を下回るときだけ)。
 const COLW_DENSE:  (number | undefined)[] = [28, 56, 20, 22, 22, 22, undefined, 34, 46, 46, 46, 46, 34, 56, 84, 96];
 const COLW_NORMAL: (number | undefined)[] = [40, 78, 40, 68, 48, 84, undefined, 52, 72, 72, 60, 60, 48, 78, 116, 210];
 /** タスク名列のインデックス(チェックボックス列含む) */
 const TITLE_COL = 6;
-const TITLE_W_KEY = "worklist3.titleW";
-const TITLE_W_MIN = 160;
-const TITLE_W_MAX = 1200;
+/** タスク名列の最低幅。表全体の最低幅 = 固定列合計 + これ。これを下回ると横スクロール */
+const TITLE_MIN_DENSE = 180;
+const TITLE_MIN_NORMAL = 220;
 
 function repeatLabel(task: Task): string {
   if (!task.repeat) return "";
@@ -168,37 +167,6 @@ export default function TaskTable({
   dense = false,
   ...handlers
 }: Props) {
-  // タスク名列の幅。null=自動(残り幅を独占)。D&Dで変更しlocalStorageに記憶(Issue #10)
-  const [titleW, setTitleW] = useState<number | null>(() => {
-    const v = Number(localStorage.getItem(TITLE_W_KEY));
-    return Number.isFinite(v) && v >= TITLE_W_MIN ? Math.min(v, TITLE_W_MAX) : null;
-  });
-
-  useEffect(() => {
-    if (titleW == null) localStorage.removeItem(TITLE_W_KEY);
-    else localStorage.setItem(TITLE_W_KEY, String(titleW));
-  }, [titleW]);
-
-  /** タスク名見出しの右端ハンドルをドラッグして幅変更 */
-  const onTitleResizeStart = (e: ReactPointerEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const thEl = (e.currentTarget as HTMLElement).closest("th");
-    if (!thEl) return;
-    const startW = thEl.getBoundingClientRect().width;
-    const startX = e.clientX;
-    const move = (ev: PointerEvent) => {
-      const w = Math.round(startW + ev.clientX - startX);
-      setTitleW(Math.min(TITLE_W_MAX, Math.max(TITLE_W_MIN, w)));
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  };
-
   // 密度でクラスを切替(通常: 余白広め / ライト: Excel並みの詰め込み)
   const th = dense
     ? "border-b border-gray-300 bg-gray-700 px-1 py-0.5 text-left text-[11px] font-semibold text-white whitespace-nowrap"
@@ -293,19 +261,18 @@ export default function TaskTable({
     );
   }
 
-  // タスク名列にD&D指定の幅があれば反映。そのときは全列の幅が確定するので
-  // 表自体の幅も固定し、指定どおりのピクセルで描画する(足りなければ横スクロール)。
-  const colw = (dense ? COLW_DENSE : COLW_NORMAL).map((w, i) =>
-    i === TITLE_COL ? (titleW ?? w) : w
-  );
-  const fixedTotal = titleW != null ? colw.reduce<number>((s, w) => s + (w ?? 0), 0) : null;
+  // タスク名(TITLE_COL)は幅未指定=残り幅を独占して自動で伸びる。
+  // 表の最低幅 = 固定列合計 + タスク名の最低幅。ウィンドウがこれを下回ると横スクロール。
+  const colw = dense ? COLW_DENSE : COLW_NORMAL;
+  const fixedSum = colw.reduce<number>((s, w, i) => (i === TITLE_COL ? s : s + (w ?? 0)), 0);
+  const minTableW = fixedSum + (dense ? TITLE_MIN_DENSE : TITLE_MIN_NORMAL);
 
   return (
     // ヘッダー固定のため、この枠内で縦横スクロールさせる(画面高いっぱい)
     <div className="max-h-[calc(100vh-8.5rem)] overflow-auto rounded border border-gray-300 shadow-sm">
       <table
-        className={`table-fixed border-collapse bg-white ${fixedTotal ? "" : "w-full"}`}
-        style={fixedTotal ? { width: fixedTotal } : undefined}
+        className="w-full table-fixed border-collapse bg-white"
+        style={{ minWidth: minTableW }}
       >
         <colgroup>
           {colw.map((w, i) => (
@@ -315,18 +282,8 @@ export default function TaskTable({
         <thead>
           <tr>
             {headers.map((h, i) => (
-              <th key={i} className={`${th} sticky top-0 z-10 ${i === TITLE_COL ? "relative" : ""}`}>
+              <th key={i} className={`${th} sticky top-0 z-10`}>
                 {h}
-                {i === TITLE_COL && (
-                  <span
-                    // タスク名列の右端をドラッグして幅変更。ダブルクリックで自動幅に戻す
-                    onPointerDown={onTitleResizeStart}
-                    onDoubleClick={() => setTitleW(null)}
-                    onClick={(e) => e.stopPropagation()}
-                    className="absolute right-0 top-0 h-full w-1.5 cursor-col-resize select-none bg-gray-500/40 hover:bg-blue-400"
-                    title="ドラッグで幅変更 / ダブルクリックで自動幅に戻す"
-                  />
-                )}
               </th>
             ))}
           </tr>

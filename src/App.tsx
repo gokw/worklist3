@@ -794,7 +794,7 @@ export default function App() {
         totals={totals}
       />
 
-      <main className={`mx-auto p-4 ${layout === "tableLight" ? "max-w-none" : "max-w-7xl"}`}>
+      <main className={`mx-auto p-4 ${layout === "cards" ? "max-w-7xl" : "max-w-none"}`}>
         {layout !== "cards" ? (
           <TaskTable
             tasks={visibleTasks}
