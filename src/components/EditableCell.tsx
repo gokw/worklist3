@@ -34,6 +34,8 @@ interface Props {
   placeholder?: string;
   listId?: string;
   tdClassName: string;
+  /** エディタ入力欄のクラス上書き(表ライトの高密度用) */
+  editorClassName?: string;
   title?: string;
   onStartEdit: () => void;
   onCommit: (raw: string) => void;
@@ -58,6 +60,7 @@ export default function EditableCell({
   placeholder,
   listId,
   tdClassName,
+  editorClassName,
   title,
   onStartEdit,
   onCommit,
@@ -142,6 +145,7 @@ export default function EditableCell({
   };
 
   const editorCls =
+    editorClassName ??
     "w-full rounded border border-blue-400 bg-white px-1 py-0.5 text-sm outline-none";
   const stop = (e: ReactMouseEvent) => e.stopPropagation();
   const onBlur = () => {

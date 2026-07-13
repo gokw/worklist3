@@ -575,9 +575,11 @@ export default function App() {
           e.preventDefault();
           handleClipboardImport();
           break;
-        case "t":
+        case "t": // 表 → 表ライト → カード の巡回
           e.preventDefault();
-          setLayout((l) => (l === "table" ? "cards" : "table"));
+          setLayout((l) =>
+            l === "table" ? "tableLight" : l === "tableLight" ? "cards" : "table"
+          );
           break;
         case "m": // 仕事/個人/すべて モード巡回
           e.preventDefault();
@@ -594,12 +596,12 @@ export default function App() {
           else moveFocus(1);
           break;
         case "arrowleft": // 表: 左の列へ(Excel風セル移動)Issue #5
-          if (layout !== "table") break;
+          if (layout === "cards") break;
           e.preventDefault();
           moveColumn(-1);
           break;
         case "arrowright": // 表: 右の列へ
-          if (layout !== "table") break;
+          if (layout === "cards") break;
           e.preventDefault();
           moveColumn(1);
           break;
@@ -651,7 +653,7 @@ export default function App() {
         case "enter": // 表: カーソルのセルを編集。列未選択や表以外は詳細編集
           if (!focused) break;
           e.preventDefault();
-          if (layout === "table" && focusedField) {
+          if (layout !== "cards" && focusedField) {
             setEditingCell({ id: focused.id, field: focusedField });
           } else {
             openEditForm(focused);
@@ -746,10 +748,11 @@ export default function App() {
         totals={totals}
       />
 
-      <main className="mx-auto max-w-7xl p-4">
-        {layout === "table" ? (
+      <main className={`mx-auto p-4 ${layout === "tableLight" ? "max-w-none" : "max-w-7xl"}`}>
+        {layout !== "cards" ? (
           <TaskTable
             tasks={visibleTasks}
+            dense={layout === "tableLight"}
             selectedIds={selectedIds}
             onToggleSelect={toggleSelect}
             onRangeSelectTo={rangeSelectTo}

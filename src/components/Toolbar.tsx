@@ -3,7 +3,7 @@
 // ==============================================================
 import { useState } from "react";
 import type { LayoutMode, ViewMode, WorkMode } from "../types";
-import { VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
+import { LAYOUT_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
 
 /** ドロップダウン(その他)にまとめるビュー */
@@ -223,12 +223,16 @@ export default function Toolbar(p: Props) {
         <span className="mx-1 text-gray-300">|</span>
 
         <div className="flex gap-1">
-          <button className={chip(p.layout === "table")} onClick={() => p.onLayoutChange("table")}>
-            表形式
-          </button>
-          <button className={chip(p.layout === "cards")} onClick={() => p.onLayoutChange("cards")}>
-            カード形式
-          </button>
+          {(["table", "tableLight", "cards"] as LayoutMode[]).map((l) => (
+            <button
+              key={l}
+              className={chip(p.layout === l)}
+              onClick={() => p.onLayoutChange(l)}
+              title={l === "tableLight" ? "高密度の表(Excel風の詰め込み表示)" : undefined}
+            >
+              {LAYOUT_LABELS[l]}
+            </button>
+          ))}
         </div>
 
         <span className="mx-1 text-gray-300">|</span>

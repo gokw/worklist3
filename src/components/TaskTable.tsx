@@ -2,6 +2,8 @@
 // 表形式ビュー(Excel版 worklist の列構成を踏襲)
 //   よく直す列はセルをクリックしてその場で編集(インライン編集)。
 //   メモ/リンク/繰り返し等の詳細は ✎ / Enter / 詳細ダイアログで編集する。
+//   dense=true は「表形式ライト」(Issue #10): Excel並みの高密度表示。
+//     行高を約2/3に・見出しを圧縮・記号化・等幅数字で桁揃え・操作はアイコンのみ。
 // ==============================================================
 import type { ReactNode } from "react";
 import type { Importance, Task } from "../types";
@@ -66,10 +68,13 @@ interface Props extends TaskActionHandlers {
   /** 編集中セル(App が保持し、キーボードからも開始できるよう制御化) */
   editing: EditingCell;
   onEditingChange: (e: EditingCell) => void;
+  /** 表形式ライト(高密度)。Issue #10 */
+  dense?: boolean;
 }
 
-const th = "border-b border-gray-300 bg-gray-700 px-2 py-1.5 text-left text-xs font-semibold text-white whitespace-nowrap";
-const td = "border-b border-gray-200 px-2 py-1 text-sm whitespace-nowrap";
+// 見出し(dense はExcel流に圧縮)
+const HEADERS_NORMAL = ["", "日付", "区分", "ステータス", "繰返", "タスク名", "重要度", "見積", "開始予定", "終了予定", "開始", "終了", "実績", "残り", "期限", "カテゴリ", "操作"] as const;
+const HEADERS_DENSE = ["", "日付", "区", "状", "繰", "タスク名", "重", "見", "予定", "終予", "開始", "終了", "実", "残", "期限", "分類", ""] as const;
 
 function repeatLabel(task: Task): string {
   if (!task.repeat) return "";
@@ -146,8 +151,24 @@ export default function TaskTable({
   onFocusTask,
   editing,
   onEditingChange,
+  dense = false,
   ...handlers
 }: Props) {
+  // 密度でクラスを切替(通常: 余白広め / ライト: Excel並みの詰め込み)
+  const th = dense
+    ? "border-b border-gray-300 bg-gray-700 px-1 py-0.5 text-left text-[11px] font-semibold text-white whitespace-nowrap"
+    : "border-b border-gray-300 bg-gray-700 px-2 py-1.5 text-left text-xs font-semibold text-white whitespace-nowrap";
+  const td = dense
+    ? "border-b border-gray-100 px-1 py-0 text-xs leading-[1.6] whitespace-nowrap"
+    : "border-b border-gray-200 px-2 py-1 text-sm whitespace-nowrap";
+  // 時刻・数値列は等幅数字で桁を揃える(視認性の要)
+  const tdTime = `${td} tabular-nums`;
+  const tdNum = `${td} text-right tabular-nums`;
+  const editorCls = dense
+    ? "w-full rounded border border-blue-400 bg-white px-1 py-0 text-xs outline-none"
+    : undefined;
+  const headers = dense ? HEADERS_DENSE : HEADERS_NORMAL;
+
   const startEdit = (id: string, field: EditableField) => {
     onFocusCell(id, field);
     onEditingChange({ id, field });
@@ -212,6 +233,7 @@ export default function TaskTable({
       placeholder={extra?.placeholder}
       renderEditor={extra?.renderEditor}
       tdClassName={extra?.tdClass ?? td}
+      editorClassName={editorCls}
       onStartEdit={() => startEdit(task.id, field)}
       onCommit={(raw) => commit(task, field, raw)}
       onFinish={(reason) => finish(task.id, field, reason)}
@@ -231,29 +253,18 @@ export default function TaskTable({
       <table className="w-full border-collapse bg-white">
         <thead>
           <tr>
-            <th className={th}></th>
-            <th className={th}>日付</th>
-            <th className={th}>区分</th>
-            <th className={th}>ステータス</th>
-            <th className={th}>繰返</th>
-            <th className={th}>タスク名</th>
-            <th className={th}>重要度</th>
-            <th className={th}>見積</th>
-            <th className={th}>開始予定</th>
-            <th className={th}>終了予定</th>
-            <th className={th}>開始</th>
-            <th className={th}>終了</th>
-            <th className={th}>実績</th>
-            <th className={th}>残り</th>
-            <th className={th}>期限</th>
-            <th className={th}>カテゴリ</th>
-            <th className={th}>操作</th>
+            {headers.map((h, i) => (
+              <th key={i} className={th}>
+                {h}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
           {tasks.map((t) => {
             const act = actMin(t);
             const focused = t.id === focusedId;
+            const st = derivedStatus(t);
             return (
               <tr
                 key={t.id}
@@ -272,6 +283,7 @@ export default function TaskTable({
                   <span className="inline-flex items-center gap-1">
                     <input
                       type="checkbox"
+                      className={dense ? "h-3 w-3" : ""}
                       checked={selectedIds.includes(t.id)}
                       onChange={() => {}}
                       // 選択は onClick で自前処理(既定トグルは止めて二重処理を防ぐ)
@@ -285,7 +297,11 @@ export default function TaskTable({
                       title="クリックで選択 / Shift+クリックで範囲選択"
                     />
                     {selectedIds.includes(t.id) && (
-                      <span className="inline-flex h-4 w-4 items-center justify-center rounded-full bg-blue-600 text-[10px] font-bold text-white">
+                      <span
+                        className={`inline-flex items-center justify-center rounded-full bg-blue-600 font-bold text-white ${
+                          dense ? "h-3.5 w-3.5 text-[9px]" : "h-4 w-4 text-[10px]"
+                        }`}
+                      >
                         {selectedIds.indexOf(t.id) + 1}
                       </span>
                     )}
@@ -293,41 +309,55 @@ export default function TaskTable({
                 </td>
 
                 {/* 日付(インライン) */}
-                {cell(t, "date", "date", t.date ? formatDateJa(t.date) : "毎日")}
+                {cell(t, "date", "date", t.date ? formatDateJa(t.date) : "毎日", {
+                  tdClass: tdTime,
+                })}
 
                 {/* 区分(仕事/個人)は編集不可 */}
                 <td className={`${td} text-center`} title={t.scope === "work" ? "仕事" : "個人"}>
                   {t.scope === "work" ? "💼" : "🏠"}
                 </td>
 
-                {/* ステータス(待ちトグル) */}
+                {/* ステータス(待ちトグル)。ライトは1文字 */}
                 <td className={td}>
                   <button
-                    className={`rounded px-2 py-0.5 text-xs font-semibold ${statusBadgeClass(derivedStatus(t))}`}
+                    className={`rounded font-semibold ${statusBadgeClass(st)} ${
+                      dense ? "px-1 text-[11px] leading-tight" : "px-2 py-0.5 text-xs"
+                    }`}
                     title={
-                      t.actEnd
+                      `${DERIVED_STATUS_LABELS[st]} — ` +
+                      (t.actEnd
                         ? "クリックで待ちタスクとして複製(Wキー)"
-                        : "クリックで待ちON/OFF(Wキー)"
+                        : "クリックで待ちON/OFF(Wキー)")
                     }
                     onClick={(e) => {
                       e.stopPropagation();
                       onToggleWait(t);
                     }}
                   >
-                    {DERIVED_STATUS_LABELS[derivedStatus(t)]}
+                    {dense ? DERIVED_STATUS_LABELS[st].charAt(0) : DERIVED_STATUS_LABELS[st]}
                   </button>
                 </td>
 
-                {/* 繰返(編集不可・詳細で) */}
-                <td className={`${td} text-xs text-gray-500`}>{repeatLabel(t)}</td>
+                {/* 繰返(編集不可・詳細で)。ライトは🔁アイコン+ツールチップ */}
+                {dense ? (
+                  <td className={`${td} text-center`} title={repeatLabel(t)}>
+                    {t.repeat ? "🔁" : ""}
+                  </td>
+                ) : (
+                  <td className={`${td} text-xs text-gray-500`}>{repeatLabel(t)}</td>
+                )}
 
-                {/* タスク名(インライン) */}
+                {/* タスク名(インライン)。ライトは1行に切り詰め(ホバーで全文) */}
                 {cell(
                   t,
                   "title",
                   "text",
-                  <span className="whitespace-normal">
-                    <span className={t.actEnd ? "line-through" : ""}>
+                  <span
+                    className={dense ? "flex max-w-[24rem] items-center" : "whitespace-normal"}
+                    title={dense ? t.title : undefined}
+                  >
+                    <span className={`${t.actEnd ? "line-through" : ""} ${dense ? "truncate" : ""}`}>
                       {t.parentId && <span className="text-gray-400">└ </span>}
                       {t.title || <span className="text-gray-300">(無題)</span>}
                     </span>
@@ -337,7 +367,7 @@ export default function TaskTable({
                         href={url}
                         target="_blank"
                         rel="noreferrer"
-                        className="ml-1 text-blue-500 hover:underline"
+                        className="ml-1 shrink-0 text-blue-500 hover:underline"
                         title={url}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -346,7 +376,7 @@ export default function TaskTable({
                     ))}
                     {t.memos.some((m) => m) && (
                       <span
-                        className="ml-1 cursor-help text-gray-400"
+                        className="ml-1 shrink-0 cursor-help text-gray-400"
                         title={t.memos.filter(Boolean).join("\n")}
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -363,7 +393,9 @@ export default function TaskTable({
                   "importance",
                   "select",
                   <span
-                    className={`inline-block w-6 rounded text-center text-xs font-bold ${importanceBadgeClass(t.importance)}`}
+                    className={`inline-block rounded text-center font-bold ${importanceBadgeClass(t.importance)} ${
+                      dense ? "w-4 text-[11px] leading-tight" : "w-6 text-xs"
+                    }`}
                   >
                     {t.importance}
                   </span>,
@@ -371,25 +403,25 @@ export default function TaskTable({
                 )}
 
                 {/* 見積(インライン・数値) */}
-                {cell(t, "estimateMin", "number", t.estimateMin || "", { tdClass: `${td} text-right` })}
+                {cell(t, "estimateMin", "number", t.estimateMin || "", { tdClass: tdNum })}
 
                 {/* 開始予定(インライン・4桁) */}
-                {cell(t, "planStart", "time", t.planStart ?? "")}
+                {cell(t, "planStart", "time", t.planStart ?? "", { tdClass: tdTime })}
 
                 {/* 終了予定(計算・編集不可) */}
-                <td className={`${td} text-gray-500`}>{planEnd(t) ?? ""}</td>
+                <td className={`${tdTime} text-gray-500`}>{planEnd(t) ?? ""}</td>
 
                 {/* 開始実績/終了実績(インライン・4桁) */}
-                {cell(t, "actStart", "time", t.actStart ?? "")}
-                {cell(t, "actEnd", "time", t.actEnd ?? "")}
+                {cell(t, "actStart", "time", t.actStart ?? "", { tdClass: tdTime })}
+                {cell(t, "actEnd", "time", t.actEnd ?? "", { tdClass: tdTime })}
 
                 {/* 実績/残り(計算・編集不可) */}
-                <td className={`${td} text-right text-gray-500`}>{act ?? ""}</td>
-                <td className={`${td} text-right text-gray-500`}>{remainMin(t) || ""}</td>
+                <td className={`${tdNum} text-gray-500`}>{act ?? ""}</td>
+                <td className={`${tdNum} text-gray-500`}>{remainMin(t) || ""}</td>
 
                 {/* 期限(インライン) */}
                 {cell(t, "deadline", "date", t.deadline ? formatDateJa(t.deadline) : "", {
-                  tdClass: `${td} ${deadlineTextClass(t)}`,
+                  tdClass: `${tdTime} ${deadlineTextClass(t)}`,
                 })}
 
                 {/* カテゴリ(インライン・前方一致コンボボックス) */}
@@ -404,14 +436,17 @@ export default function TaskTable({
                       onCancel={api.cancel}
                       autoFocus
                       placeholder="運用業務 等"
-                      className="w-full rounded border border-blue-400 bg-white px-1 py-0.5 text-sm outline-none"
+                      className={
+                        editorCls ??
+                        "w-full rounded border border-blue-400 bg-white px-1 py-0.5 text-sm outline-none"
+                      }
                     />
                   ),
                 })}
 
                 {/* 操作 */}
                 <td className={td} onClick={(e) => e.stopPropagation()}>
-                  <TaskActions task={t} {...handlers} />
+                  <TaskActions task={t} compact={dense} {...handlers} />
                 </td>
               </tr>
             );
