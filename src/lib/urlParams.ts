@@ -30,7 +30,7 @@ export function readUrlSettings(): UrlSettings {
   if (view && VIEWS.includes(view as ViewMode)) s.view = view as ViewMode;
 
   const layout = p.get("layout");
-  if (layout === "table" || layout === "cards") s.layout = layout;
+  if (layout === "table" || layout === "tableLight" || layout === "cards") s.layout = layout;
 
   const done = p.get("done");
   if (done === "1" || done === "true") s.showDone = true;

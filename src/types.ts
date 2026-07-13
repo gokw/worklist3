@@ -116,5 +116,11 @@ export const WORK_MODE_LABELS: Record<WorkMode, string> = {
   all: "すべて",
 };
 
-/** 表示形式: 表(Excel踏襲) / カード(Todoist風) */
-export type LayoutMode = "table" | "cards";
+/** 表示形式: 表(Excel踏襲) / 表ライト(高密度) / カード(Todoist風) */
+export type LayoutMode = "table" | "tableLight" | "cards";
+
+export const LAYOUT_LABELS: Record<LayoutMode, string> = {
+  table: "表形式",
+  tableLight: "表ライト",
+  cards: "カード形式",
+};
