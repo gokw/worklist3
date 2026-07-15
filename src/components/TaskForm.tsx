@@ -146,18 +146,8 @@ export default function TaskForm({
           </p>
         </div>
 
-        {/* 基本情報: 見積→重要度→カテゴリの順(文字・数字だけでバンバン打ち込める並び) */}
+        {/* 重要度・見積(文字・数字だけでバンバン打ち込める並び) */}
         <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <div>
-            <label className={labelCls}>見積時間(分)</label>
-            <input
-              type="number"
-              min={0}
-              className={inputCls}
-              value={draft.estimateMin}
-              onChange={(e) => set("estimateMin", Math.max(0, Number(e.target.value)))}
-            />
-          </div>
           <div>
             <label className={labelCls}>重要度</label>
             <select
@@ -171,6 +161,29 @@ export default function TaskForm({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className={labelCls}>見積時間(分)</label>
+            <input
+              type="number"
+              min={0}
+              className={inputCls}
+              value={draft.estimateMin}
+              onChange={(e) => set("estimateMin", Math.max(0, Number(e.target.value)))}
+            />
+          </div>
+        </div>
+
+        {/* 開始予定・カテゴリ・期限 */}
+        <div className="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div>
+            <label className={labelCls}>開始予定時刻</label>
+            <TimeField
+              className={inputCls}
+              value={draft.planStart}
+              onChange={(v) => set("planStart", v)}
+            />
+            <p className="mt-0.5 text-[11px] text-gray-400">数字4桁(例 0930)</p>
           </div>
           <div className="col-span-2">
             <label className={labelCls}>カテゴリ(分類・集計用)</label>
@@ -188,69 +201,29 @@ export default function TaskForm({
               </p>
             )}
           </div>
+          <div>
+            <label className={labelCls}>期限(いつまでに)</label>
+            <input
+              type="date"
+              className={inputCls}
+              value={draft.deadline ?? ""}
+              onChange={(e) => set("deadline", e.target.value || undefined)}
+            />
+          </div>
         </div>
 
-        {/* 予定(開始予定・期限) */}
-        <fieldset className="mb-4 rounded-lg border border-gray-200 p-3">
-          <legend className="px-1 text-xs font-semibold text-gray-500">予定</legend>
-          <div className="grid grid-cols-2 gap-3 sm:max-w-sm">
-            <div>
-              <label className={labelCls}>開始予定時刻</label>
-              <TimeField
-                className={inputCls}
-                value={draft.planStart}
-                onChange={(v) => set("planStart", v)}
-              />
-              <p className="mt-0.5 text-[11px] text-gray-400">数字4桁(例 0930)</p>
-            </div>
-            <div>
-              <label className={labelCls}>期限(いつまでに)</label>
-              <input
-                type="date"
-                className={inputCls}
-                value={draft.deadline ?? ""}
-                onChange={(e) => set("deadline", e.target.value || undefined)}
-              />
-            </div>
-          </div>
-        </fieldset>
-
-        {/* トグル類: 仕事/個人 と 待ち(既定で正しいことが多いので入力の流れの後段に置く) */}
-        <div className="mb-4 flex flex-wrap items-end gap-x-8 gap-y-3">
-          <div>
-            <label className={labelCls}>仕事 / 個人</label>
-            <div className="flex gap-1">
-              {(["work", "personal"] as TaskScope[]).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => set("scope", s)}
-                  className={`rounded px-4 py-1.5 text-sm font-semibold ${
-                    draft.scope === s
-                      ? s === "work"
-                        ? "bg-blue-600 text-white"
-                        : "bg-emerald-600 text-white"
-                      : "border border-gray-300 bg-white text-gray-500 hover:bg-gray-100"
-                  }`}
-                >
-                  {s === "work" ? "💼 " : "🏠 "}
-                  {SCOPE_LABELS[s]}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className={labelCls}>待ち</label>
-            <label className="flex h-[34px] items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                className="h-4 w-4"
-                checked={draft.waiting}
-                onChange={(e) => set("waiting", e.target.checked)}
-              />
-              待ち(他の人待ち等)
-            </label>
-          </div>
+        {/* 待ち */}
+        <div className="mb-4">
+          <label className={labelCls}>待ち</label>
+          <label className="flex h-[34px] items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={draft.waiting}
+              onChange={(e) => set("waiting", e.target.checked)}
+            />
+            待ち(他の人待ち等)
+          </label>
         </div>
 
         {/* 繰り返し設定 */}
@@ -372,6 +345,30 @@ export default function TaskForm({
               />
             </div>
           ))}
+        </div>
+
+        {/* 仕事/個人(既定で正しいことが多いので入力の流れの最後段に置く) */}
+        <div className="mb-4">
+          <label className={labelCls}>仕事 / 個人</label>
+          <div className="flex gap-1">
+            {(["work", "personal"] as TaskScope[]).map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => set("scope", s)}
+                className={`rounded px-4 py-1.5 text-sm font-semibold ${
+                  draft.scope === s
+                    ? s === "work"
+                      ? "bg-blue-600 text-white"
+                      : "bg-emerald-600 text-white"
+                    : "border border-gray-300 bg-white text-gray-500 hover:bg-gray-100"
+                }`}
+              >
+                {s === "work" ? "💼 " : "🏠 "}
+                {SCOPE_LABELS[s]}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* 実績(記録): 普段は一覧のS/Eボタンで自動入力されるので、フォームでは最後の手直し用 */}
