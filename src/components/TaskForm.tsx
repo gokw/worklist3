@@ -2,7 +2,7 @@
 // タスク追加・編集フォーム(モーダル)
 // 繰り返し設定はExcel版の記号入力を廃止し、フォームUIで指定する
 // ==============================================================
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { RepeatConfig, Task, TaskScope } from "../types";
 import { ALL_IMPORTANCES, REPEAT_UNIT_LABELS, SCOPE_LABELS, WEEKDAY_LABELS } from "../types";
 import TimeField from "./TimeField";
@@ -40,6 +40,12 @@ export default function TaskForm({
   // カテゴリをユーザーが自分で触ったか(触るまではタイトルから自動推測する)
   const [categoryTouched, setCategoryTouched] = useState(!isNew || task.category !== "");
 
+  // 未保存の変更があるか判定するためのスナップショット(初回描画時の状態のみを保持)
+  const snapshotOf = (d: Task, on: boolean, r: RepeatConfig) =>
+    JSON.stringify({ ...d, repeatOn: on, repeat: on ? r : undefined });
+  const initialSnapshot = useRef(snapshotOf(draft, repeatOn, repeat));
+  const hasUnsavedChanges = () => snapshotOf(draft, repeatOn, repeat) !== initialSnapshot.current;
+
   // 新規タスクで未タッチのうちは、タイトルに応じてカテゴリを自動セット(Issue #2)
   useEffect(() => {
     if (isNew && !categoryTouched) {
@@ -48,14 +54,16 @@ export default function TaskForm({
     }
   }, [draft.title, isNew, categoryTouched, suggestCategory]);
 
-  // Escで閉じる
+  // Escで閉じる(未保存の変更があれば確認してから)
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (hasUnsavedChanges() && !confirm("保存していない変更があります。閉じてよいですか？")) return;
+      onClose();
     };
     window.addEventListener("keydown", h);
     return () => window.removeEventListener("keydown", h);
-  }, [onClose]);
+  }, [onClose, draft, repeatOn, repeat]);
 
   const set = <K extends keyof Task>(key: K, value: Task[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -212,20 +220,6 @@ export default function TaskForm({
           </div>
         </div>
 
-        {/* 待ち */}
-        <div className="mb-4">
-          <label className={labelCls}>待ち</label>
-          <label className="flex h-[34px] items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              className="h-4 w-4"
-              checked={draft.waiting}
-              onChange={(e) => set("waiting", e.target.checked)}
-            />
-            待ち(他の人待ち等)
-          </label>
-        </div>
-
         {/* 繰り返し設定 */}
         <div className="mb-3 rounded border border-gray-200 bg-gray-50 p-3">
           <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
@@ -345,6 +339,20 @@ export default function TaskForm({
               />
             </div>
           ))}
+        </div>
+
+        {/* 待ち */}
+        <div className="mb-4">
+          <label className={labelCls}>待ち</label>
+          <label className="flex h-[34px] items-center gap-2 text-sm text-gray-700">
+            <input
+              type="checkbox"
+              className="h-4 w-4"
+              checked={draft.waiting}
+              onChange={(e) => set("waiting", e.target.checked)}
+            />
+            待ち(他の人待ち等)
+          </label>
         </div>
 
         {/* 仕事/個人(既定で正しいことが多いので入力の流れの最後段に置く) */}
