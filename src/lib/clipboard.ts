@@ -53,6 +53,24 @@ function isCalendarText(s: string): boolean {
   return /^\d{1,4}\/\d{1,2}\/\d{1,2}/.test(s.trim());
 }
 
+/**
+ * 予定本文に自動挿入される来客受付(ACALL)ブロックの目印。
+ *   ++++…++ この行以降はシステムから自動で挿入されます … ACALL Appointment [id]
+ * 「来客」の語で判定すると「応接室0415(14名_来客用)」「プロジェクター⑤(4F来客エリア限定)」で
+ * 誤爆するため、この目印だけを見る。
+ */
+const ACALL_MARKER = "ACALL Appointment";
+
+/**
+ * 予定本文から会議室・応接室を1件取り出す(最初に見つかったもの)。
+ *   加賀町第３_会議室0459(12名_社員限定) → 会議室0459
+ *   加賀町_応接室0415(14名_来客用);      → 応接室0415
+ * 「Microsoft Teams 会議」は番号が続かないので当たらない。
+ */
+function findRoom(bodyLines: string[]): string | undefined {
+  return bodyLines.join("\n").match(/(?:会議室|応接室)\d+/)?.[0];
+}
+
 /** "23/2/27" や "2026/7/11" を YYYY-MM-DD へ */
 function parseSlashDate(s: string): string | undefined {
   const m = s.trim().match(/^(\d{1,4})\/(\d{1,2})\/(\d{1,2})/);
@@ -108,8 +126,8 @@ export function parseClipboardText(clip: string, html?: string): ParsedClipboard
   // --- 2) カレンダー予定(2行目が日付) 例:
   //   会議タイトル
   //   23/2/27 (月) 10:00 - 11:00
+  //   加賀町第３_会議室0459(12名_社員限定)   ← 3行目以降に会議室があれば名前の後ろへ
   if (lines.length >= 2 && isCalendarText(lines[1])) {
-    const title = lines[0].trim();
     const parts = lines[1].trim().split(/\s+/); // [日付, (曜), 開始, -, 終了]
     const date = parseSlashDate(parts[0]);
     const start = parts.length > 2 ? normalizeTime(parts[2]) : undefined;
@@ -122,10 +140,21 @@ export function parseClipboardText(clip: string, html?: string): ParsedClipboard
       estimate = diff >= 0 ? diff : diff + 1440;
     }
 
+    // システム自動挿入ブロック(ACALL)があれば来客の予定。
+    // 「来客」の語だけで判定すると「応接室0415(14名_来客用)」等で誤爆するので、
+    // ACALL の目印そのものを見る
+    const acallAt = lines.findIndex((l) => l.includes(ACALL_MARKER));
+    const isVisitor = acallAt !== -1;
+    // 会議室・応接室は3行目以降から拾う(自動挿入ブロックより前だけを見る)
+    const room = findRoom(lines.slice(2, isVisitor ? acallAt : undefined));
+
+    const title =
+      (isVisitor ? "【来客】" : "") + (lines[0].trim() || "予定") + (room ? `【${room}】` : "");
+
     return {
       kind: "calendar",
       task: createTask({
-        title: title || "予定",
+        title,
         date: date ?? todayStr(),
         planStart: start,
         estimateMin: estimate,
