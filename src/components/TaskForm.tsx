@@ -300,19 +300,24 @@ export default function TaskForm({
                 </select>
                 <input
                   type="number"
-                  min={1}
+                  // 日単位のみ0を許可(メール確認など1日に何度も行うタスク用)。週/月/年は最低1。
+                  min={repeat.unit === "day" ? 0 : 1}
                   className="w-16 rounded border border-gray-300 px-2 py-1"
                   value={repeat.interval}
-                  onChange={(e) =>
-                    setRepeat({ ...repeat, interval: Math.max(1, Number(e.target.value)) })
-                  }
+                  onChange={(e) => {
+                    const floor = repeat.unit === "day" ? 0 : 1;
+                    setRepeat({ ...repeat, interval: Math.max(floor, Number(e.target.value)) });
+                  }}
                 />
                 <select
                   className="rounded border border-gray-300 px-2 py-1"
                   value={repeat.unit}
-                  onChange={(e) =>
-                    setRepeat({ ...repeat, unit: e.target.value as RepeatConfig["unit"] })
-                  }
+                  onChange={(e) => {
+                    const unit = e.target.value as RepeatConfig["unit"];
+                    // 日以外に切り替えたら0は無効なので最低1に引き上げる
+                    const interval = unit === "day" ? repeat.interval : Math.max(1, repeat.interval);
+                    setRepeat({ ...repeat, unit, interval });
+                  }}
                 >
                   {(Object.keys(REPEAT_UNIT_LABELS) as RepeatConfig["unit"][]).map((u) => (
                     <option key={u} value={u}>
@@ -324,6 +329,11 @@ export default function TaskForm({
                   {repeat.mode === "schedule" ? "ごと" : "後に次を生成"}
                 </span>
               </div>
+              {repeat.unit === "day" && repeat.interval === 0 && (
+                <p className="text-xs text-gray-500">
+                  0日ごと = 完了するたびに同じ日でまた作られます(例: メール確認など1日に何度も行うタスク)
+                </p>
+              )}
               {repeat.unit === "week" && (
                 <div className="flex items-center gap-1">
                   <span className="mr-1 text-xs text-gray-500">曜日指定:</span>

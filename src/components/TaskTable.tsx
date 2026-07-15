@@ -92,6 +92,10 @@ const TITLE_MIN_NORMAL = 220;
 function repeatLabel(task: Task): string {
   if (!task.repeat) return "";
   const r = task.repeat;
+  // 0日ごと = 1日に何度でも(メール確認など)。「毎0日」だと分かりにくいので専用表記にする
+  if (r.unit === "day" && r.interval === 0) {
+    return r.mode === "afterComplete" ? "完了後すぐ" : "随時(何度も)";
+  }
   const base = `${r.interval}${REPEAT_UNIT_LABELS[r.unit]}`;
   const wd =
     r.unit === "week" && r.weekdays?.length
