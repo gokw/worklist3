@@ -131,6 +131,8 @@ export default function App() {
   const toastTimer = useRef<number | undefined>(undefined);
   /** 起動時1回だけ走る副作用から最新のタスクを見るための控え */
   const tasksRef = useRef(tasks);
+  /** revealTask で案内する行。一覧に現れたらスクロールする */
+  const pendingRevealId = useRef<string | null>(null);
 
   // 保存(タスクが変わるたびに localStorage へ)。
   // 同期フォルダへの控えはデバウンス付きの非同期なので、この主経路は止めない
@@ -224,37 +226,35 @@ export default function App() {
     return (title: string) => title.toLowerCase().includes(lower);
   }, [titleFilter]);
 
-  const visibleTasks = useMemo(() => {
-    const today = todayStr();
-    // 繰越 = 前日以前の日付で、まだ終わっていないタスク(忘れ防止で今日系ビューに出す)
-    const isCarryover = (t: Task) => !!t.date && t.date < today && !t.actEnd;
+  /** 今の期間ビューに含まれるタスクか(一覧の絞り込みと「重複行へ飛ぶ」で共用) */
+  const matchesPeriod = useCallback(
+    (t: Task) => {
+      const today = todayStr();
+      // 繰越 = 前日以前の日付で、まだ終わっていないタスク(忘れ防止で今日系ビューに出す)
+      const isCarryover = !!t.date && t.date < today && !t.actEnd;
+      switch (viewMode) {
+        case "todayOnward":
+          // 今日以降(＋毎日)＋繰越
+          return !t.date || t.date >= today || isCarryover;
+        case "today":
+          // 選択日のタスク(日付一致＋毎日)。選択日が今日なら繰越も混ぜる
+          return !t.date || t.date === selectedDate || (selectedDate === today && isCarryover);
+        case "custom":
+          // 指定範囲の日付のみ(繰越は混ぜない)。片側が空ならその側は無制限。
+          // 日付なし(毎日のタスク)は特定の期間に属さないので範囲指定では出さない
+          return (
+            !!t.date && (!customFrom || t.date >= customFrom) && (!customTo || t.date <= customTo)
+          );
+        case "everything":
+          return true;
+      }
+    },
+    [viewMode, selectedDate, customFrom, customTo]
+  );
 
-    let list = tasks.filter(matchesMode);
-    // 1. 期間
-    switch (viewMode) {
-      case "todayOnward":
-        // 今日以降(＋毎日)＋繰越
-        list = list.filter((t) => !t.date || t.date >= today || isCarryover(t));
-        break;
-      case "today":
-        // 選択日のタスク(日付一致＋毎日)。選択日が今日なら繰越も混ぜる
-        list = list.filter(
-          (t) =>
-            !t.date ||
-            t.date === selectedDate ||
-            (selectedDate === today && isCarryover(t))
-        );
-        break;
-      case "custom":
-        // 指定範囲の日付のみ(繰越は混ぜない)。片側が空ならその側は無制限。
-        // 日付なし(毎日のタスク)は特定の期間に属さないので範囲指定では出さない
-        list = list.filter(
-          (t) => !!t.date && (!customFrom || t.date >= customFrom) && (!customTo || t.date <= customTo)
-        );
-        break;
-      case "everything":
-        break;
-    }
+  const visibleTasks = useMemo(() => {
+    // 1. 仕事/個人 と 期間
+    let list = tasks.filter((t) => matchesMode(t) && matchesPeriod(t));
     // 2. 完了の扱い
     if (doneFilter === "onlyDone") list = list.filter((t) => !!t.actEnd);
     else if (doneFilter === "hideDone") list = list.filter((t) => !t.actEnd);
@@ -265,18 +265,40 @@ export default function App() {
     // 5. タスク名
     if (titleMatcher) list = list.filter((t) => titleMatcher(t.title));
     return sortTasks(list);
-  }, [
-    tasks,
-    viewMode,
-    selectedDate,
-    customFrom,
-    customTo,
-    doneFilter,
-    plannedOnly,
-    categoryFilter,
-    titleMatcher,
-    matchesMode,
-  ]);
+  }, [tasks, matchesMode, matchesPeriod, doneFilter, plannedOnly, categoryFilter, titleMatcher]);
+
+  /**
+   * 指定タスクが今の絞り込みで隠れているなら、見えるようになる最小限だけ緩めてカーソルを合わせる。
+   * (重複した予定の行へ案内するときに使う。「重複と言われたがどこにあるか分からない」を防ぐ)
+   */
+  const revealTask = useCallback(
+    (t: Task) => {
+      if (mode !== "all" && t.scope !== mode) setMode("all");
+      if (!matchesPeriod(t)) setViewMode("everything"); // 期間から外れているなら全期間へ
+      if (doneFilter === "hideDone" && t.actEnd) setDoneFilter("all");
+      if (doneFilter === "onlyDone" && !t.actEnd) setDoneFilter("all");
+      if (plannedOnly && !t.planStart) setPlannedOnly(false);
+      if (categoryFilter && t.category !== categoryFilter) setCategoryFilter("");
+      if (titleMatcher && !titleMatcher(t.title)) setTitleFilter("");
+      setFocusedId(t.id);
+      setAnchorId(t.id);
+      // 絞り込みを緩めた直後は再描画が要る。行が実際に出てからスクロールする(下の useEffect)
+      pendingRevealId.current = t.id;
+    },
+    [mode, matchesPeriod, doneFilter, plannedOnly, categoryFilter, titleMatcher]
+  );
+
+  // revealTask の続き: 対象行が一覧に現れたら画面内へスクロールする
+  useEffect(() => {
+    const id = pendingRevealId.current;
+    if (!id || !visibleTasks.some((t) => t.id === id)) return;
+    pendingRevealId.current = null;
+    requestAnimationFrame(() => {
+      document
+        .querySelector(`[data-task-id="${CSS.escape(id)}"]`)
+        ?.scrollIntoView({ block: "center", inline: "nearest" });
+    });
+  }, [visibleTasks]);
 
   const categories = useMemo(() => collectCategories(tasks), [tasks]);
 
@@ -486,6 +508,24 @@ export default function App() {
         return;
       }
       const { kind, task } = parseClipboardText(text, html);
+
+      // Outlook予定は同じものを二度貼りがちなので、既に登録済みなら追加せず既存行へ案内する。
+      // 日付・タスク名(会議室/来客の表記込み)・開始予定・見積がすべて一致したら重複とみなす
+      if (kind === "calendar") {
+        const dup = tasks.find(
+          (t) =>
+            t.date === task.date &&
+            t.title === task.title &&
+            (t.planStart ?? "") === (task.planStart ?? "") &&
+            t.estimateMin === task.estimateMin
+        );
+        if (dup) {
+          revealTask(dup);
+          showToast(`重複: 「${dup.title}」は既に登録されています`);
+          return;
+        }
+      }
+
       const kindLabel = { teams: "Teamsリンク", calendar: "予定", plain: "テキスト" }[kind];
       showToast(`${kindLabel}として認識しました。内容を確認して保存してください`);
       // 取込タスクも今のビューの仕事/個人に合わせる
@@ -494,7 +534,7 @@ export default function App() {
     } catch {
       showToast("クリップボードを読み取れませんでした(ブラウザの許可が必要です)");
     }
-  }, [showToast, defaultScope]);
+  }, [showToast, defaultScope, tasks, revealTask]);
 
   // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスク・モード対象外は除く
   const handleRandomStart = useCallback(() => {
