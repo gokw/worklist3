@@ -59,6 +59,28 @@ import type { ParsedRow } from "./lib/bulkParse";
 // URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
 const urlInit = readUrlSettings();
 
+/**
+ * クリップボードをプレーン/リッチの両方で読む。
+ * read() はブラウザ・権限によっては使えないので、その場合は readText() へ落とす。
+ */
+async function readClipboard(): Promise<{ text: string; html?: string }> {
+  try {
+    const items = await navigator.clipboard.read();
+    let text = "";
+    let html: string | undefined;
+    for (const item of items) {
+      if (!text && item.types.includes("text/plain"))
+        text = await (await item.getType("text/plain")).text();
+      if (!html && item.types.includes("text/html"))
+        html = await (await item.getType("text/html")).text();
+    }
+    if (text || html) return { text, html };
+  } catch {
+    /* read() が使えない環境・形式 → 下の readText() で取り直す */
+  }
+  return { text: await navigator.clipboard.readText() };
+}
+
 export default function App() {
   const [tasks, setTasks] = useState<Task[]>(() => repository.load());
   const [selectedDate, setSelectedDate] = useState(todayStr());
@@ -456,12 +478,14 @@ export default function App() {
   // クリップボード取込(Excel版 UnifiedInsertTask 踏襲)
   const handleClipboardImport = useCallback(async () => {
     try {
-      const text = await navigator.clipboard.readText();
-      if (!text.trim()) {
+      // リッチテキスト(text/html)も読む。Teamsリンクの「表示テキスト」はここにしか無く、
+      // プレーンテキストだけだとタスク名が拾えない(Excel版 InsertTeamsLink 踏襲)
+      const { text, html } = await readClipboard();
+      if (!text.trim() && !html) {
         showToast("クリップボードが空です");
         return;
       }
-      const { kind, task } = parseClipboardText(text);
+      const { kind, task } = parseClipboardText(text, html);
       const kindLabel = { teams: "Teamsリンク", calendar: "予定", plain: "テキスト" }[kind];
       showToast(`${kindLabel}として認識しました。内容を確認して保存してください`);
       // 取込タスクも今のビューの仕事/個人に合わせる
