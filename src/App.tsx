@@ -126,6 +126,11 @@ export default function App() {
     setTasks((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
+  const removeMany = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
+    setTasks((prev) => prev.filter((t) => !idSet.has(t.id)));
+  }, []);
+
   // インライン編集の保存(1件更新)
   const handleUpdateTask = useCallback((t: Task) => upsert([t]), [upsert]);
 
@@ -504,6 +509,72 @@ export default function App() {
     [visibleTasks, focusedId, focusedField]
   );
 
+  /** id の行へカーソルを移し、選択範囲の基準も更新して画面内へスクロール(moveFocus等と共通の後始末) */
+  const focusRow = useCallback(
+    (id: string) => {
+      setFocusedId(id);
+      setAnchorId(id);
+      requestAnimationFrame(() => {
+        const row = document.querySelector(`[data-task-id="${CSS.escape(id)}"]`);
+        const cell = focusedField ? row?.querySelector(`[data-field="${focusedField}"]`) : null;
+        (cell ?? row)?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      });
+    },
+    [focusedField]
+  );
+
+  // ---------- カテゴリの区切りへジャンプ(Ctrl+↑↓) ----------
+  // 同じカテゴリの行が連続しているとき、次/前の「違うカテゴリの先頭行」へ一気に移動する。
+  const jumpCategoryGroup = useCallback(
+    (delta: number) => {
+      if (visibleTasks.length === 0) return;
+      const idx = visibleTasks.findIndex((t) => t.id === focusedId);
+      if (idx === -1) {
+        focusRow(visibleTasks[delta > 0 ? 0 : visibleTasks.length - 1].id);
+        return;
+      }
+      const curCategory = visibleTasks[idx].category;
+      if (delta > 0) {
+        let i = idx + 1;
+        while (i < visibleTasks.length && visibleTasks[i].category === curCategory) i++;
+        focusRow(visibleTasks[Math.min(i, visibleTasks.length - 1)].id);
+      } else {
+        let i = idx - 1;
+        while (i >= 0 && visibleTasks[i].category === curCategory) i--;
+        if (i < 0) {
+          focusRow(visibleTasks[0].id);
+          return;
+        }
+        // 直前のグループの「先頭」まで戻る
+        const prevCategory = visibleTasks[i].category;
+        while (i - 1 >= 0 && visibleTasks[i - 1].category === prevCategory) i--;
+        focusRow(visibleTasks[i].id);
+      }
+    },
+    [visibleTasks, focusedId, focusRow]
+  );
+
+  // ---------- Homeキー: 「今どこをやっているか」へジャンプ ----------
+  // 実行中のタスクがあればそこへ。無ければ最後に完了したタスクの次(=次にやること)。
+  // 完了したタスクも無ければ先頭行。
+  const jumpToCurrent = useCallback(() => {
+    if (visibleTasks.length === 0) return;
+    const running = visibleTasks.find((t) => derivedStatus(t) === "running");
+    if (running) {
+      focusRow(running.id);
+      return;
+    }
+    let lastDoneIdx = -1;
+    visibleTasks.forEach((t, i) => {
+      if (derivedStatus(t) === "done") lastDoneIdx = i;
+    });
+    if (lastDoneIdx !== -1) {
+      focusRow(visibleTasks[Math.min(lastDoneIdx + 1, visibleTasks.length - 1)].id);
+      return;
+    }
+    focusRow(visibleTasks[0].id);
+  }, [visibleTasks, focusRow]);
+
   // ---------- カーソル列移動(←→キー。Excel風セル移動)Issue #5 ----------
   const onFocusCell = useCallback((id: string, field: EditableField) => {
     setFocusedId(id);
@@ -611,6 +682,17 @@ export default function App() {
         if (target) openEditForm(target);
         return;
       }
+      // Ctrl/⌘+↑↓: 同じカテゴリの並びを飛び越えて次/前のカテゴリの先頭へ
+      if ((e.ctrlKey || e.metaKey) && e.key === "ArrowDown") {
+        e.preventDefault();
+        jumpCategoryGroup(1);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "ArrowUp") {
+        e.preventDefault();
+        jumpCategoryGroup(-1);
+        return;
+      }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       // カーソル位置のタスク(Excel版のアクティブセル行に相当)
@@ -655,6 +737,10 @@ export default function App() {
           if (layout === "cards") break;
           e.preventDefault();
           moveColumn(1);
+          break;
+        case "home": // 「今どこをやっているか」へジャンプ: 実行中→無ければ完了の次→無ければ先頭
+          e.preventDefault();
+          jumpToCurrent();
           break;
         case "h": // カーソルタスクの日付を前日へ(Issue #7)
           if (!focused) break;
@@ -716,8 +802,39 @@ export default function App() {
           toggleSelect(focused.id);
           break;
         case "delete":
-          if (!focused) break;
           e.preventDefault();
+          if (selectedIds.length > 0) {
+            // 複数選択があればまとめて削除(選択より後ろの最初の残存行、無ければ前の残存行へカーソル)
+            if (confirm(`選択した${selectedIds.length}件を削除しますか？`)) {
+              const selSet = new Set(selectedIds);
+              let lastSelIdx = -1;
+              visibleTasks.forEach((t, i) => {
+                if (selSet.has(t.id)) lastSelIdx = i;
+              });
+              let nextFocus: Task | undefined;
+              for (let i = lastSelIdx + 1; i < visibleTasks.length; i++) {
+                if (!selSet.has(visibleTasks[i].id)) {
+                  nextFocus = visibleTasks[i];
+                  break;
+                }
+              }
+              if (!nextFocus) {
+                for (let i = lastSelIdx - 1; i >= 0; i--) {
+                  if (!selSet.has(visibleTasks[i].id)) {
+                    nextFocus = visibleTasks[i];
+                    break;
+                  }
+                }
+              }
+              removeMany(selectedIds);
+              setSelectedIds([]);
+              setAnchorId(null);
+              setFocusedId(nextFocus ? nextFocus.id : null);
+              showToast(`${selectedIds.length}件を削除しました`);
+            }
+            break;
+          }
+          if (!focused) break;
           if (confirm(`「${focused.title}」を削除しますか？`)) {
             // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
             const idx = visibleTasks.findIndex((t) => t.id === focused.id);
@@ -750,6 +867,9 @@ export default function App() {
     moveColumn,
     extendSelection,
     shiftFocusedDate,
+    jumpCategoryGroup,
+    jumpToCurrent,
+    selectedIds,
     handleStart,
     handleEnd,
     handleToggleWait,
@@ -758,6 +878,7 @@ export default function App() {
     openEditForm,
     toggleSelect,
     remove,
+    removeMany,
     showToast,
     cycleMode,
   ]);
@@ -836,11 +957,12 @@ export default function App() {
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
           <kbd>↑</kbd><kbd>↓</kbd> 行移動 / <kbd>←</kbd><kbd>→</kbd> 列移動(表) /{" "}
+          <kbd>Ctrl+↑↓</kbd> 次/前のカテゴリへ / <kbd>Home</kbd> 今の作業位置へ /{" "}
           <kbd>Shift</kbd>+<kbd>↑↓</kbd> 範囲選択 / <kbd>H</kbd> 日付-1 / <kbd>L</kbd> 日付+1 /{" "}
           <kbd>Enter</kbd> セル編集(列未選択なら詳細) / <kbd>Ctrl+Enter</kbd> 詳細編集 /{" "}
           <kbd>S</kbd> 開始 / <kbd>E</kbd> 終了 /{" "}
           <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ち / <kbd>C</kbd> コピー / <kbd>P</kbd> 延期 /{" "}
-          <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
+          <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除(複数選択時は一括)
           <br />
           <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 / <kbd>M</kbd> 仕事⇔個人モード /{" "}
           <kbd>T</kbd> 表⇔カード切替
