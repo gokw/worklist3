@@ -1,7 +1,7 @@
 // ==============================================================
 // ツールバー: 日付移動・仕事/個人モード・表示切替・カテゴリ絞込・各種操作
 // ==============================================================
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { DoneFilter, ViewMode, WorkMode } from "../types";
 import { DONE_FILTER_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
@@ -9,6 +9,37 @@ import type { BackupState } from "../lib/backup";
 
 /** ドロップダウン(その他)にまとめる期間 */
 const DROPDOWN_VIEWS: ViewMode[] = ["today", "everything", "custom"];
+
+/**
+ * 開いているメニューを「外側クリック」と Esc で閉じる。返り値の ref を
+ * 「開くボタン＋メニュー本体」を囲む要素に付ける。
+ *
+ * 背景に fixed のオーバーレイを敷く手は使えない。ツールバーが backdrop-blur を
+ * 持つため、その要素が position:fixed の基準になり、オーバーレイが画面全体ではなく
+ * ツールバーの高さ(1280x86)しか覆わない。一覧の上をクリックしても閉じなかった原因。
+ */
+function useDismiss(open: boolean, onClose: () => void) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    // ボタン自身の上での pointerdown は無視する(閉じてから click で開き直ると点滅するため)
+    const onDown = (e: PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) onClose();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation(); // App 側の Esc(ダイアログを閉じる等)まで巻き込まない
+      onClose();
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    document.addEventListener("keydown", onKey, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      document.removeEventListener("keydown", onKey, true);
+    };
+  }, [open, onClose]);
+  return ref;
+}
 
 /** タスク名フィルタの履歴(localStorage) */
 const HISTORY_KEY = "worklist3.titleFilterHistory";
@@ -97,6 +128,8 @@ export default function Toolbar(p: Props) {
   const [history, setHistory] = useState<string[]>(loadFilterHistory);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropdownActive = DROPDOWN_VIEWS.includes(p.viewMode);
+  const viewMenuRef = useDismiss(viewMenuOpen, () => setViewMenuOpen(false));
+  const dataMenuRef = useDismiss(dataMenuOpen, () => setDataMenuOpen(false));
 
   const shiftDate = (days: number) => {
     const d = new Date(p.selectedDate);
@@ -230,6 +263,7 @@ export default function Toolbar(p: Props) {
           >
             ✏️ 一括編集 ({p.selectedCount})
           </button>
+          <div className="relative" ref={dataMenuRef}>
           <button
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
             onClick={() => setDataMenuOpen((o) => !o)}
@@ -237,10 +271,10 @@ export default function Toolbar(p: Props) {
           >
             💾 ▾
           </button>
-          {/* データメニュー(エクスポート/インポート/自動バックアップ)。Issue #12 */}
+          {/* データメニュー(エクスポート/インポート/自動バックアップ)。Issue #12
+              外側クリック・Esc で閉じる(useDismiss)。fixed の背景は使えない事情はそちらのコメント参照 */}
           {dataMenuOpen && (
             <>
-              <div className="fixed inset-0 z-40" onClick={() => setDataMenuOpen(false)} />
               <div className="absolute right-0 top-10 z-50 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
                 <button
                   className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
@@ -362,6 +396,7 @@ export default function Toolbar(p: Props) {
               setDataMenuOpen(false);
             }}
           />
+          </div>
         </div>
       </div>
 
@@ -392,7 +427,7 @@ export default function Toolbar(p: Props) {
           >
             今日以降
           </button>
-          <div className="relative">
+          <div className="relative" ref={viewMenuRef}>
             <button
               className={chip(dropdownActive)}
               onClick={() => setViewMenuOpen((o) => !o)}
@@ -402,7 +437,6 @@ export default function Toolbar(p: Props) {
             </button>
             {viewMenuOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setViewMenuOpen(false)} />
                 <div className="absolute left-0 top-9 z-50 w-32 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
                   {DROPDOWN_VIEWS.map((v) => (
                     <button
