@@ -719,7 +719,11 @@ export default function App() {
           if (!focused) break;
           e.preventDefault();
           if (confirm(`「${focused.title}」を削除しますか？`)) {
+            // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
+            const idx = visibleTasks.findIndex((t) => t.id === focused.id);
+            const nextFocus = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
             remove(focused.id);
+            setFocusedId(nextFocus ? nextFocus.id : null);
             showToast("削除しました");
           }
           break;
@@ -856,7 +860,11 @@ export default function App() {
             showToast(formIsNew ? `追加: ${t.title}` : `更新: ${t.title}`);
           }}
           onDelete={(id) => {
+            // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
+            const idx = visibleTasks.findIndex((t) => t.id === id);
+            const nextFocus = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
             remove(id);
+            setFocusedId(nextFocus ? nextFocus.id : null);
             setFormTask(null);
             showToast("削除しました");
           }}
