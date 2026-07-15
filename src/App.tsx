@@ -604,6 +604,13 @@ export default function App() {
         openNewForm();
         return;
       }
+      // Ctrl/⌘+Enter: カーソル位置のタスクの詳細編集を開く(列選択中でもセル編集を挟まず一発で)
+      if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+        e.preventDefault();
+        const target = visibleTasks.find((t) => t.id === focusedId);
+        if (target) openEditForm(target);
+        return;
+      }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       // カーソル位置のタスク(Excel版のアクティブセル行に相当)
@@ -826,7 +833,8 @@ export default function App() {
         <p className="mt-6 text-center text-[11px] text-gray-400">
           <kbd>↑</kbd><kbd>↓</kbd> 行移動 / <kbd>←</kbd><kbd>→</kbd> 列移動(表) /{" "}
           <kbd>Shift</kbd>+<kbd>↑↓</kbd> 範囲選択 / <kbd>H</kbd> 日付-1 / <kbd>L</kbd> 日付+1 /{" "}
-          <kbd>Enter</kbd> セル編集(列未選択なら詳細) / <kbd>S</kbd> 開始 / <kbd>E</kbd> 終了 /{" "}
+          <kbd>Enter</kbd> セル編集(列未選択なら詳細) / <kbd>Ctrl+Enter</kbd> 詳細編集 /{" "}
+          <kbd>S</kbd> 開始 / <kbd>E</kbd> 終了 /{" "}
           <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ち / <kbd>C</kbd> コピー / <kbd>P</kbd> 延期 /{" "}
           <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除
           <br />
