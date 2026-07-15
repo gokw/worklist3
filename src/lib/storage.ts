@@ -4,6 +4,7 @@
 // TaskRepository の実装を差し替えるだけで済む構造にしてある。
 // ==============================================================
 import type { Task } from "../types";
+import { todayStr } from "./date";
 
 export interface TaskRepository {
   load(): Task[];
@@ -88,7 +89,10 @@ export function serializeTasks(tasks: Task[]): string {
   return JSON.stringify(tasks, null, 2);
 }
 
-/** バックアップ用: 全タスクをJSONファイルとしてダウンロード */
+/**
+ * バックアップ用: 全タスクをJSONファイルとしてダウンロード。
+ * ビューの絞り込みとは無関係に、渡された全件をそのまま出力する。
+ */
 export function exportTasksAsJson(tasks: Task[]): void {
   const blob = new Blob([serializeTasks(tasks)], {
     type: "application/json",
@@ -96,7 +100,11 @@ export function exportTasksAsJson(tasks: Task[]): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `worklist3-backup-${new Date().toISOString().slice(0, 10)}.json`;
+  a.download = `worklist3-backup-${todayStr()}.json`;
+  // DOMに入れてからclickし、URLの解放はダウンロード開始後に回す
+  // (即座に revoke するとファイルが保存されないことがある)
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
 }
