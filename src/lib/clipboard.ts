@@ -3,6 +3,11 @@
 //   1) teams.microsoft.com を含むURL → Teamsタスク
 //   2) 2行目が「年/月/日」形式 → Outlook予定(カレンダー)タスク
 //   3) それ以外 → 通常タスク
+//
+// Teamsタスクのタスク名は「リンクの表示テキスト」から取る。
+// Excel版 InsertTeamsLink は system シートへ2回貼り(書式付き=表示テキスト /
+// テキスト形式=URL)、表示テキストを contents にしていた。これに合わせるため、
+// クリップボードの text/html(リッチテキスト側)を見る。
 // ==============================================================
 import type { Task } from "../types";
 import { createTask } from "./logic";
@@ -13,6 +18,34 @@ export type ClipboardKind = "teams" | "calendar" | "plain";
 export interface ParsedClipboard {
   kind: ClipboardKind;
   task: Task;
+}
+
+/** リンクの表示テキストとURL(クリップボードのHTML形式から取り出す) */
+interface HtmlLink {
+  text: string;
+  href: string;
+}
+
+/**
+ * HTML形式のクリップボードから、指定ホストを指すリンクを1件取り出す。
+ * 表示テキストがURLそのもの(リンク化されただけの生URL)なら、名前として使えないので捨てる。
+ */
+function findHtmlLink(html: string | undefined, hostPart: string): HtmlLink | undefined {
+  if (!html) return undefined;
+  let doc: Document;
+  try {
+    doc = new DOMParser().parseFromString(html, "text/html");
+  } catch {
+    return undefined;
+  }
+  for (const a of doc.querySelectorAll("a[href]")) {
+    const href = a.getAttribute("href") ?? "";
+    if (!href.includes(hostPart)) continue;
+    const text = (a.textContent ?? "").replace(/\s+/g, " ").trim();
+    if (!text || text.includes(hostPart)) continue; // 表示テキストがURLなら名前にならない
+    return { text, href };
+  }
+  return undefined;
 }
 
 /** Excel版 IsCalendarText: 「年/月/日」で始まるか */
@@ -37,21 +70,34 @@ function normalizeTime(s: string): string | undefined {
   return `${m[1].padStart(2, "0")}:${m[2]}`;
 }
 
-export function parseClipboardText(clip: string): ParsedClipboard {
+/**
+ * クリップボードの内容からタスクを1件組み立てる。
+ * @param clip プレーンテキスト(text/plain)
+ * @param html リッチテキスト(text/html)。あればTeamsリンクの表示テキストを名前に使う
+ */
+export function parseClipboardText(clip: string, html?: string): ParsedClipboard {
   const lines = clip.split(/\r\n|\r|\n/).filter((_, i, arr) => !(i === 0 && arr[0] === ""));
 
   // --- 1) Teamsリンク ---
-  if (clip.includes("https://") && clip.includes("teams.microsoft.com")) {
-    const urlMatch = clip.match(/https:\/\/\S*teams\.microsoft\.com\S*/);
-    const url = urlMatch ? urlMatch[0] : "";
-    // URL以外の最初の行をタイトルにする
+  const htmlLink = findHtmlLink(html, "teams.microsoft.com");
+  if (htmlLink || (clip.includes("https://") && clip.includes("teams.microsoft.com"))) {
+    // URLの末尾に付きがちな > ) 」 、。 などは切り落とす
+    // (Outlook本文の「ここをクリック<https://...>」対策)
+    const urlMatch = clip.match(/https:\/\/[^\s<>"')」』】]*teams\.microsoft\.com[^\s<>"')」』】]*/);
+    const url = htmlLink?.href || (urlMatch ? urlMatch[0] : "");
+    // 名前は「リンクの表示テキスト」が最優先(Excel版 InsertTeamsLink 踏襲)。
+    // 無ければURL以外の最初の行。それも無ければ既定名。
+    // 区切り線や飾り(___ === --- など)だけの行は名前にならないので飛ばす
     const titleLine = lines.find(
-      (l) => l.trim() !== "" && !l.includes("teams.microsoft.com")
+      (l) =>
+        l.trim() !== "" &&
+        !l.includes("teams.microsoft.com") &&
+        !/^[\s_=\-*・—―─]+$/.test(l)
     );
     return {
       kind: "teams",
       task: createTask({
-        title: titleLine?.trim() || "Teams会議",
+        title: htmlLink?.text || titleLine?.trim() || "Teams会議",
         date: todayStr(),
         estimateMin: 0,
         links: url ? [url] : [],
