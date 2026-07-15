@@ -2,13 +2,38 @@
 // ツールバー: 日付移動・仕事/個人モード・表示切替・カテゴリ絞込・各種操作
 // ==============================================================
 import { useRef, useState } from "react";
-import type { LayoutMode, ViewMode, WorkMode } from "../types";
-import { LAYOUT_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
+import type { DoneFilter, ViewMode, WorkMode } from "../types";
+import { DONE_FILTER_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
 import type { BackupState } from "../lib/backup";
 
-/** ドロップダウン(その他)にまとめるビュー */
-const DROPDOWN_VIEWS: ViewMode[] = ["today", "done", "everything"];
+/** ドロップダウン(その他)にまとめる期間 */
+const DROPDOWN_VIEWS: ViewMode[] = ["today", "everything", "custom"];
+
+/** タスク名フィルタの履歴(localStorage) */
+const HISTORY_KEY = "worklist3.titleFilterHistory";
+const HISTORY_MAX = 10;
+
+export function loadFilterHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((s) => typeof s === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** 同じ語は先頭へ寄せ、直近 HISTORY_MAX 件だけ残す */
+function pushFilterHistory(q: string): string[] {
+  const next = [q, ...loadFilterHistory().filter((s) => s !== q)].slice(0, HISTORY_MAX);
+  try {
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(next));
+  } catch {
+    /* 保存できなくても絞り込み自体は動く */
+  }
+  return next;
+}
 
 interface Props {
   selectedDate: string;
@@ -17,13 +42,20 @@ interface Props {
   onModeChange: (m: WorkMode) => void;
   viewMode: ViewMode;
   onViewModeChange: (v: ViewMode) => void;
-  layout: LayoutMode;
-  onLayoutChange: (l: LayoutMode) => void;
+  /** カスタム(範囲指定)の開始日・終了日。空=その側は無制限 */
+  customFrom: string;
+  customTo: string;
+  onCustomFromChange: (d: string) => void;
+  onCustomToChange: (d: string) => void;
   categories: string[];
   categoryFilter: string;
   onCategoryFilterChange: (c: string) => void;
-  showDone: boolean;
-  onShowDoneChange: (v: boolean) => void;
+  doneFilter: DoneFilter;
+  onDoneFilterChange: (d: DoneFilter) => void;
+  plannedOnly: boolean;
+  onPlannedOnlyChange: (v: boolean) => void;
+  titleFilter: string;
+  onTitleFilterChange: (q: string) => void;
   onAdd: () => void;
   onClipboardImport: () => void;
   onBulkAdd: () => void;
@@ -62,6 +94,7 @@ const modeChip = (m: WorkMode, active: boolean) => {
 export default function Toolbar(p: Props) {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [dataMenuOpen, setDataMenuOpen] = useState(false);
+  const [history, setHistory] = useState<string[]>(loadFilterHistory);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropdownActive = DROPDOWN_VIEWS.includes(p.viewMode);
 
@@ -101,6 +134,48 @@ export default function Toolbar(p: Props) {
             )}
             <span className="ml-1 text-sm font-semibold text-gray-700">
               {p.selectedDate === todayStr() ? "今日" : formatDateJa(p.selectedDate)}
+            </span>
+          </div>
+        )}
+
+        {/* カスタム(範囲指定): 片側を空にすると「この日以降」「この日まで」になる */}
+        {p.viewMode === "custom" && (
+          <div className="flex items-center gap-1">
+            <input
+              type="date"
+              className="rounded border border-gray-300 px-2 py-1 text-sm"
+              value={p.customFrom}
+              onChange={(e) => p.onCustomFromChange(e.target.value)}
+              title="開始日(空ならこの日以前も全部)"
+            />
+            <span className="text-sm text-gray-500">〜</span>
+            <input
+              type="date"
+              className="rounded border border-gray-300 px-2 py-1 text-sm"
+              value={p.customTo}
+              onChange={(e) => p.onCustomToChange(e.target.value)}
+              title="終了日(空ならこの日以降も全部)"
+            />
+            {(p.customFrom || p.customTo) && (
+              <button
+                className={chip(false)}
+                onClick={() => {
+                  p.onCustomFromChange("");
+                  p.onCustomToChange("");
+                }}
+                title="範囲を空にする(全期間と同じになる)"
+              >
+                クリア
+              </button>
+            )}
+            <span className="ml-1 text-xs text-gray-500">
+              {!p.customFrom && !p.customTo
+                ? "日付のあるタスク全て"
+                : !p.customTo
+                  ? `${formatDateJa(p.customFrom)} 以降`
+                  : !p.customFrom
+                    ? `${formatDateJa(p.customTo)} まで`
+                    : `${formatDateJa(p.customFrom)} 〜 ${formatDateJa(p.customTo)}`}
             </span>
           </div>
         )}
@@ -308,7 +383,7 @@ export default function Toolbar(p: Props) {
 
         <span className="mx-1 text-gray-300">|</span>
 
-        {/* ビュー選択: 単独[今日以降][予定] + ドロップダウン[今日/完了/全期間] */}
+        {/* 期間: 単独[今日以降] + ドロップダウン[今日/全期間/カスタム] */}
         <div className="flex items-center gap-1">
           <button
             className={chip(p.viewMode === "todayOnward")}
@@ -317,18 +392,11 @@ export default function Toolbar(p: Props) {
           >
             今日以降
           </button>
-          <button
-            className={chip(p.viewMode === "planned")}
-            onClick={() => p.onViewModeChange("planned")}
-            title="今日以降で時刻が決まっている予定＋繰越"
-          >
-            予定
-          </button>
           <div className="relative">
             <button
               className={chip(dropdownActive)}
               onClick={() => setViewMenuOpen((o) => !o)}
-              title="今日 / 完了 / 全期間"
+              title="今日 / 全期間 / カスタム(範囲指定)"
             >
               {dropdownActive ? VIEW_MODE_LABELS[p.viewMode] : "その他"} ▾
             </button>
@@ -356,8 +424,9 @@ export default function Toolbar(p: Props) {
           </div>
         </div>
 
+        {/* 表示形式の切替(表形式/表ライト/カード形式)は一覧から外した。types.ts 参照。
+            戻すときはこのブロックと App の T キーのコメントを外す
         <span className="mx-1 text-gray-300">|</span>
-
         <div className="flex gap-1">
           {(["table", "tableLight", "cards"] as LayoutMode[]).map((l) => (
             <button
@@ -370,33 +439,55 @@ export default function Toolbar(p: Props) {
             </button>
           ))}
         </div>
+        */}
 
         <span className="mx-1 text-gray-300">|</span>
 
-        <select
-          className="rounded border border-gray-300 px-2 py-1 text-xs"
-          value={p.categoryFilter}
-          onChange={(e) => p.onCategoryFilterChange(e.target.value)}
+        {/* 予定のみ: 開始予定時刻が入ったものだけ(打合せなど時間が決まった予定の確認) */}
+        <button
+          role="switch"
+          aria-checked={p.plannedOnly}
+          className="flex items-center gap-1.5 text-xs text-gray-600"
+          onClick={() => p.onPlannedOnlyChange(!p.plannedOnly)}
+          title="開始予定時刻が入っているタスクだけに絞る"
         >
-          <option value="">全カテゴリ</option>
-          {p.categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
-
-        {/* 完了も表示: 完了/全期間ビューでは意味がないので隠す */}
-        {p.viewMode !== "done" && p.viewMode !== "everything" && (
-          <label className="flex items-center gap-1 text-xs text-gray-600">
-            <input
-              type="checkbox"
-              checked={p.showDone}
-              onChange={(e) => p.onShowDoneChange(e.target.checked)}
+          <span
+            className={`relative h-4 w-7 rounded-full transition-colors ${
+              p.plannedOnly ? "bg-blue-600" : "bg-gray-300"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 h-3 w-3 rounded-full bg-white transition-all ${
+                p.plannedOnly ? "left-3.5" : "left-0.5"
+              }`}
             />
-            完了も表示
-          </label>
-        )}
+          </span>
+          <span className={p.plannedOnly ? "font-semibold text-blue-700" : undefined}>予定のみ</span>
+        </button>
+
+        <span className="mx-1 text-gray-300">|</span>
+
+        {/* 完了の扱い(すべて/完了のみ/完了を隠す)。
+            モード側にも「すべて」があるので、見出しを付けて取り違えを防ぐ */}
+        <div className="flex items-center gap-1">
+          <span className="text-xs text-gray-500">完了:</span>
+          {(["all", "onlyDone", "hideDone"] as DoneFilter[]).map((d) => (
+            <button
+              key={d}
+              className={chip(p.doneFilter === d)}
+              onClick={() => p.onDoneFilterChange(d)}
+              title={
+                d === "all"
+                  ? "完了も未完了も表示"
+                  : d === "onlyDone"
+                    ? "完了したものだけ(振り返り用)"
+                    : "完了を隠して残りの作業に集中"
+              }
+            >
+              {DONE_FILTER_LABELS[d]}
+            </button>
+          ))}
+        </div>
 
         <span className="mx-1 text-gray-300">|</span>
 
@@ -417,6 +508,44 @@ export default function Toolbar(p: Props) {
             選択解除 ({p.selectedCount})
           </button>
         )}
+
+        <span className="mx-1 text-gray-300">|</span>
+
+        {/* タスク名フィルタ: 中間一致。/パターン/ で正規表現。Enterで履歴に残る */}
+        <div className="relative flex items-center">
+          <span className="pointer-events-none absolute left-2 text-xs text-gray-400">🔍</span>
+          <input
+            type="search"
+            list="worklist3-filter-history"
+            className="w-52 rounded border border-gray-300 py-1 pl-6 pr-2 text-xs"
+            placeholder="タスク名で絞り込み"
+            value={p.titleFilter}
+            onChange={(e) => p.onTitleFilterChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && p.titleFilter.trim()) setHistory(pushFilterHistory(p.titleFilter.trim()));
+              if (e.key === "Escape") p.onTitleFilterChange("");
+            }}
+            title={"中間一致(大文字小文字は区別しない)\n/パターン/ で正規表現(例 /^報告/)\nEnterで履歴に残る・Escで消去"}
+          />
+          <datalist id="worklist3-filter-history">
+            {history.map((h) => (
+              <option key={h} value={h} />
+            ))}
+          </datalist>
+        </div>
+
+        <select
+          className="rounded border border-gray-300 px-2 py-1 text-xs"
+          value={p.categoryFilter}
+          onChange={(e) => p.onCategoryFilterChange(e.target.value)}
+        >
+          <option value="">全カテゴリ</option>
+          {p.categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
       </div>
     </div>
   );
