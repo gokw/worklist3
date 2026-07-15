@@ -251,7 +251,8 @@ export default function App() {
   );
 
   // JSONファイルからの一括インポート(Issue #12)。
-  // 同じIDが既にあるものは重複としてスキップし、結果ダイアログで件数と内容を知らせる。
+  // 「差分だけ読み込む」= 無いものは追加し、中身が違うものはファイルの内容で上書きする。
+  // 完全に同じものだけスキップ。これにより、消えたデータの復元にそのまま使える。
   const handleImportFile = useCallback(
     async (file: File) => {
       try {
@@ -260,9 +261,11 @@ export default function App() {
           showToast("インポート失敗: JSONがタスクの配列ではありません");
           return;
         }
-        const existing = new Set(tasks.map((t) => t.id));
-        const added: Task[] = [];
-        const duplicates: string[] = [];
+        const byId = new Map(tasks.map((t) => [t.id, t]));
+        const write: Task[] = []; // 追加・上書きするタスク(そのまま upsert へ渡す)
+        const updatedTitles: string[] = [];
+        let added = 0;
+        let same = 0;
         let invalid = 0;
         for (const item of raw) {
           if (
@@ -275,15 +278,26 @@ export default function App() {
             continue;
           }
           const t = migrateTask(item);
-          if (existing.has(t.id)) {
-            duplicates.push(t.title);
+          const current = byId.get(t.id);
+          if (!current) {
+            added++;
+            write.push(t);
+          } else if (JSON.stringify(current) !== JSON.stringify(t)) {
+            updatedTitles.push(t.title);
+            write.push(t);
           } else {
-            existing.add(t.id);
-            added.push(t);
+            same++;
           }
+          byId.set(t.id, t); // ファイル内に同じIDが複数あっても二重に数えない
         }
-        if (added.length > 0) upsert(added);
-        setImportResult({ total: raw.length, added: added.length, duplicates, invalid });
+        if (write.length > 0) upsert(write);
+        setImportResult({
+          total: raw.length,
+          added,
+          updatedTitles,
+          same,
+          invalid,
+        });
       } catch {
         showToast("インポート失敗: JSONとして読み込めませんでした");
       }
