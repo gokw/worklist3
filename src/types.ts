@@ -79,21 +79,34 @@ export interface Task {
 }
 
 /**
- * 表示ビュー(よく使う組み合わせのプリセット)
- *   today       … 今日(選択日)のタスク全て + 繰越(前日以前の未完了)
+ * 表示ビュー = 「いつの分を見るか」(期間の指定に特化)。
  *   todayOnward … 今日以降のタスク全て + 繰越(既定)
- *   planned     … 今日以降で開始予定時刻ありのみ + 繰越
- *   done        … 完了したものだけ(全期間・分析用)
+ *   today       … 今日(選択日)のタスク全て + 繰越(前日以前の未完了)
  *   everything  … すべて(棚卸し用)
+ *   custom      … 開始日〜終了日を指定(片側だけの指定も可)
+ * 完了の扱いは DoneFilter、開始予定時刻の有無は「予定のみ」トグルで別軸に分ける。
  */
-export type ViewMode = "today" | "todayOnward" | "planned" | "done" | "everything";
+export type ViewMode = "todayOnward" | "today" | "everything" | "custom";
 
 export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
-  today: "今日",
   todayOnward: "今日以降",
-  planned: "予定",
-  done: "完了",
+  today: "今日",
   everything: "全期間",
+  custom: "カスタム",
+};
+
+/**
+ * 完了タスクの扱い(期間とは独立した軸)。
+ *   all      … 完了も未完了も出す(既定)
+ *   onlyDone … 完了したものだけ(振り返り・分析用。旧「完了」ビュー相当)
+ *   hideDone … 完了を隠す(残りの作業に集中したいとき)
+ */
+export type DoneFilter = "all" | "onlyDone" | "hideDone";
+
+export const DONE_FILTER_LABELS: Record<DoneFilter, string> = {
+  all: "すべて",
+  onlyDone: "完了のみ",
+  hideDone: "完了を隠す",
 };
 
 /**
@@ -116,7 +129,12 @@ export const WORK_MODE_LABELS: Record<WorkMode, string> = {
   all: "すべて",
 };
 
-/** 表示形式: 表(Excel踏襲) / 表ライト(高密度) / カード(Todoist風) */
+/**
+ * 表示形式。現在は「表ライト」(高密度)のみを使う。
+ * 「表形式」(table) と「カード形式」(cards) は 2026-07 に一覧から外した。
+ * コンポーネント(TaskTable の dense=false / TaskCards)とこの型の値は残してあるので、
+ * Toolbar の切替チップと App の T キーのコメントを外せば復活できる。
+ */
 export type LayoutMode = "table" | "tableLight" | "cards";
 
 export const LAYOUT_LABELS: Record<LayoutMode, string> = {

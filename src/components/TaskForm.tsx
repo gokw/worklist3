@@ -125,18 +125,34 @@ export default function TaskForm({
           {isNew ? "タスクを追加" : "タスクを編集"}
         </h2>
 
-        {/* 日付(いつやるか): 通常は選択中の日付のままなので触らないことが多い。
+        {/* 日付(いつやるか)＋待ち: どちらも「いつやるか」の話なので横に並べる。
+            通常は選択中の日付のままなので触らないことが多い。
             タブ順ではタスク名の前に置くが、実際に打ち始めたいのはタスク名なので
             オートフォーカスはタスク名側に付ける(下記)。 */}
-        <div className="mb-3 max-w-[10rem]">
-          <label className={labelCls}>日付(いつやるか)</label>
-          <input
-            type="date"
-            className={inputCls}
-            value={draft.date ?? ""}
-            onChange={(e) => set("date", e.target.value || undefined)}
-          />
-          <p className="mt-0.5 text-[11px] text-gray-400">空=毎日の一覧に表示</p>
+        <div className="mb-3 flex items-start gap-3">
+          <div className="w-[10rem] shrink-0">
+            <label className={labelCls}>日付(いつやるか)</label>
+            <input
+              type="date"
+              className={inputCls}
+              value={draft.date ?? ""}
+              onChange={(e) => set("date", e.target.value || undefined)}
+            />
+            <p className="mt-0.5 text-[11px] text-gray-400">空=毎日の一覧に表示</p>
+          </div>
+          <div>
+            <label className={labelCls}>待ち</label>
+            <label className="flex h-[34px] cursor-pointer items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={draft.waiting}
+                onChange={(e) => set("waiting", e.target.checked)}
+              />
+              待ち(他の人待ち等)
+            </label>
+            <p className="mt-0.5 text-[11px] text-gray-400">重要度に関係なく最後尾へ</p>
+          </div>
         </div>
 
         {/* タスク名: 開いたら最初にここへカーソルが入る */}
@@ -339,20 +355,6 @@ export default function TaskForm({
               />
             </div>
           ))}
-        </div>
-
-        {/* 待ち */}
-        <div className="mb-4">
-          <label className={labelCls}>待ち</label>
-          <label className="flex h-[34px] items-center gap-2 text-sm text-gray-700">
-            <input
-              type="checkbox"
-              className="h-4 w-4"
-              checked={draft.waiting}
-              onChange={(e) => set("waiting", e.target.checked)}
-            />
-            待ち(他の人待ち等)
-          </label>
         </div>
 
         {/* 仕事/個人(既定で正しいことが多いので入力の流れの最後段に置く) */}

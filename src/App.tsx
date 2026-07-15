@@ -3,7 +3,7 @@
 //   状態管理・フィルタ・ショートカットキー・各ダイアログの制御
 // ==============================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { LayoutMode, Task, TaskScope, ViewMode, WorkMode } from "./types";
+import type { DoneFilter, LayoutMode, Task, TaskScope, ViewMode, WorkMode } from "./types";
 import { WORK_MODE_LABELS } from "./types";
 import { addToDate, formatDateJa, formatMin, nowHHMM, todayStr } from "./lib/date";
 import {
@@ -46,7 +46,8 @@ import TaskTable, {
   type EditableField,
   type EditingCell,
 } from "./components/TaskTable";
-import TaskCards from "./components/TaskCards";
+// カード形式は一覧から外した(types.ts 参照)。戻すときはこの import と下の描画分岐を復活させる
+// import TaskCards from "./components/TaskCards";
 import TaskForm from "./components/TaskForm";
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
@@ -63,13 +64,18 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState(todayStr());
   // 標準は「今日以降」。URLで上書き可
   const [viewMode, setViewMode] = useState<ViewMode>(urlInit.view ?? "todayOnward");
-  // 標準は「表形式」。URL > localStorage > 既定
-  const [layout, setLayout] = useState<LayoutMode>(
-    () => urlInit.layout ?? ((localStorage.getItem("worklist3.layout") as LayoutMode) || "table")
-  );
+  /** カスタム(範囲指定)ビューの開始日・終了日。空=その側は無制限 */
+  const [customFrom, setCustomFrom] = useState(urlInit.from ?? "");
+  const [customTo, setCustomTo] = useState(urlInit.to ?? "");
+  // 表示形式は「表ライト」固定。表形式/カード形式は一覧から外した(types.ts 参照)
+  const [layout] = useState<LayoutMode>("tableLight");
   const [categoryFilter, setCategoryFilter] = useState(urlInit.category ?? "");
-  // 標準は「完了も表示」。URLで上書き可(Issue #4)
-  const [showDone, setShowDone] = useState(urlInit.showDone ?? true);
+  // 完了の扱い(すべて/完了のみ/完了を隠す)。標準は「すべて」。URLで上書き可
+  const [doneFilter, setDoneFilter] = useState<DoneFilter>(urlInit.done ?? "all");
+  /** 予定のみ(開始予定時刻が入ったものだけ)。標準はオフ */
+  const [plannedOnly, setPlannedOnly] = useState(urlInit.planned ?? false);
+  /** タスク名フィルタ。中間一致。/パターン/ で囲うと正規表現 */
+  const [titleFilter, setTitleFilter] = useState(urlInit.q ?? "");
   // 選択したタスクID。選択した順を保つため配列で持つ(連続時刻を選択順に設定するため)
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   /** キーボード操作のカーソル位置(Excel版のアクティブセル行に相当) */
@@ -113,17 +119,22 @@ export default function App() {
   }, [tasks]);
 
   useEffect(() => {
-    localStorage.setItem("worklist3.layout", layout);
-  }, [layout]);
-
-  useEffect(() => {
     localStorage.setItem("worklist3.mode", mode);
   }, [mode]);
 
   // 現在の表示状態をURLへ反映(ブックマーク・共有できるように)。Issue #4
   useEffect(() => {
-    writeUrlSettings({ mode, view: viewMode, layout, showDone, category: categoryFilter });
-  }, [mode, viewMode, layout, showDone, categoryFilter]);
+    writeUrlSettings({
+      mode,
+      view: viewMode,
+      done: doneFilter,
+      planned: plannedOnly,
+      category: categoryFilter,
+      q: titleFilter,
+      from: customFrom,
+      to: customTo,
+    });
+  }, [mode, viewMode, doneFilter, plannedOnly, categoryFilter, titleFilter, customFrom, customTo]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -167,13 +178,42 @@ export default function App() {
     [mode]
   );
 
+  /**
+   * タスク名の判定関数。入力が空なら null(絞り込まない)。
+   *   通常          … 中間一致(大文字小文字を区別しない)
+   *   /パターン/    … 正規表現。/パターン/i のようにフラグも付けられる
+   * 「/」で始まったら正規表現のつもりとみなし、閉じていない・不正なうちは絞り込まない
+   * (打ちかけの "/^報" がリテラル検索になって0件になると使いづらいため)
+   */
+  const titleMatcher = useMemo(() => {
+    const q = titleFilter.trim();
+    if (!q) return null;
+    if (q.startsWith("/")) {
+      const re = /^\/(.+)\/([gimsuy]*)$/.exec(q);
+      if (!re) return null; // まだ閉じていない
+      try {
+        const rx = new RegExp(re[1], re[2].replace("g", "")); // g は test() では邪魔
+        return (title: string) => rx.test(title);
+      } catch {
+        return null; // 不正な正規表現
+      }
+    }
+    const lower = q.toLowerCase();
+    return (title: string) => title.toLowerCase().includes(lower);
+  }, [titleFilter]);
+
   const visibleTasks = useMemo(() => {
     const today = todayStr();
     // 繰越 = 前日以前の日付で、まだ終わっていないタスク(忘れ防止で今日系ビューに出す)
     const isCarryover = (t: Task) => !!t.date && t.date < today && !t.actEnd;
 
     let list = tasks.filter(matchesMode);
+    // 1. 期間
     switch (viewMode) {
+      case "todayOnward":
+        // 今日以降(＋毎日)＋繰越
+        list = list.filter((t) => !t.date || t.date >= today || isCarryover(t));
+        break;
       case "today":
         // 選択日のタスク(日付一致＋毎日)。選択日が今日なら繰越も混ぜる
         list = list.filter(
@@ -183,29 +223,38 @@ export default function App() {
             (selectedDate === today && isCarryover(t))
         );
         break;
-      case "todayOnward":
-        // 今日以降(＋毎日)＋繰越
-        list = list.filter((t) => !t.date || t.date >= today || isCarryover(t));
-        break;
-      case "planned":
-        // 今日以降で開始予定時刻あり ＋ 繰越(忘れ防止)
+      case "custom":
+        // 指定範囲の日付のみ(繰越は混ぜない)。片側が空ならその側は無制限。
+        // 日付なし(毎日のタスク)は特定の期間に属さないので範囲指定では出さない
         list = list.filter(
-          (t) => (!!t.planStart && (!t.date || t.date >= today)) || isCarryover(t)
+          (t) => !!t.date && (!customFrom || t.date >= customFrom) && (!customTo || t.date <= customTo)
         );
-        break;
-      case "done":
-        list = list.filter((t) => !!t.actEnd);
         break;
       case "everything":
         break;
     }
+    // 2. 完了の扱い
+    if (doneFilter === "onlyDone") list = list.filter((t) => !!t.actEnd);
+    else if (doneFilter === "hideDone") list = list.filter((t) => !t.actEnd);
+    // 3. 予定のみ(開始予定時刻が入っているものだけ)
+    if (plannedOnly) list = list.filter((t) => !!t.planStart);
+    // 4. カテゴリ
     if (categoryFilter) list = list.filter((t) => t.category === categoryFilter);
-    // 完了の表示制御: done は完了のみ / everything は全部 / それ以外はトグル次第
-    if (viewMode !== "done" && viewMode !== "everything" && !showDone) {
-      list = list.filter((t) => !t.actEnd);
-    }
+    // 5. タスク名
+    if (titleMatcher) list = list.filter((t) => titleMatcher(t.title));
     return sortTasks(list);
-  }, [tasks, viewMode, selectedDate, categoryFilter, showDone, matchesMode]);
+  }, [
+    tasks,
+    viewMode,
+    selectedDate,
+    customFrom,
+    customTo,
+    doneFilter,
+    plannedOnly,
+    categoryFilter,
+    titleMatcher,
+    matchesMode,
+  ]);
 
   const categories = useMemo(() => collectCategories(tasks), [tasks]);
 
@@ -473,10 +522,15 @@ export default function App() {
   );
 
   // ビュー切替。「今日」を選んだら選択日を今日に戻す
-  const changeView = useCallback((v: ViewMode) => {
-    setViewMode(v);
-    if (v === "today") setSelectedDate(todayStr());
-  }, []);
+  const changeView = useCallback(
+    (v: ViewMode) => {
+      setViewMode(v);
+      if (v === "today") setSelectedDate(todayStr());
+      // カスタムを初めて開いたときは今日を起点にしておく(空のままだと全件出て驚くため)
+      if (v === "custom" && !customFrom && !customTo) setCustomFrom(todayStr());
+    },
+    [customFrom, customTo]
+  );
 
   const toggleSelect = useCallback((id: string) => {
     setAnchorId(id); // 範囲選択の基準
@@ -748,12 +802,14 @@ export default function App() {
           e.preventDefault();
           handleClipboardImport();
           break;
-        case "t": // 表 → 表ライト → カード の巡回
-          e.preventDefault();
-          setLayout((l) =>
-            l === "table" ? "tableLight" : l === "tableLight" ? "cards" : "table"
-          );
-          break;
+        // 表示形式は「表ライト」のみにしたので巡回するものが無い。
+        // 表形式/カード形式を戻すときは、ここと Toolbar の切替チップを復活させる
+        // case "t": // 表 → 表ライト → カード の巡回
+        //   e.preventDefault();
+        //   setLayout((l) =>
+        //     l === "table" ? "tableLight" : l === "tableLight" ? "cards" : "table"
+        //   );
+        //   break;
         case "m": // 仕事/個人/すべて モード巡回
           e.preventDefault();
           cycleMode();
@@ -945,13 +1001,19 @@ export default function App() {
         }}
         viewMode={viewMode}
         onViewModeChange={changeView}
-        layout={layout}
-        onLayoutChange={setLayout}
+        customFrom={customFrom}
+        customTo={customTo}
+        onCustomFromChange={setCustomFrom}
+        onCustomToChange={setCustomTo}
         categories={categories}
         categoryFilter={categoryFilter}
         onCategoryFilterChange={setCategoryFilter}
-        showDone={showDone}
-        onShowDoneChange={setShowDone}
+        doneFilter={doneFilter}
+        onDoneFilterChange={setDoneFilter}
+        plannedOnly={plannedOnly}
+        onPlannedOnlyChange={setPlannedOnly}
+        titleFilter={titleFilter}
+        onTitleFilterChange={setTitleFilter}
         onAdd={() => openNewForm()}
         onClipboardImport={handleClipboardImport}
         onBulkAdd={() => setBulkAddOpen(true)}
@@ -971,34 +1033,33 @@ export default function App() {
         totals={totals}
       />
 
-      <main className={`mx-auto p-4 ${layout === "cards" ? "max-w-7xl" : "max-w-none"}`}>
-        {layout !== "cards" ? (
-          <TaskTable
-            tasks={visibleTasks}
-            dense={layout === "tableLight"}
-            selectedIds={selectedIds}
-            onToggleSelect={toggleSelect}
-            onRangeSelectTo={rangeSelectTo}
-            onToggleWait={handleToggleWait}
-            onUpdateTask={handleUpdateTask}
-            focusedId={focusedId}
-            focusedField={focusedField}
-            onFocusCell={onFocusCell}
-            onFocusTask={setFocusedId}
-            editing={editingCell}
-            onEditingChange={setEditingCell}
-            {...actionHandlers}
-          />
-        ) : (
-          <TaskCards
-            tasks={visibleTasks}
-            selectedIds={selectedIds}
-            onToggleWait={handleToggleWait}
-            focusedId={focusedId}
-            onFocusTask={setFocusedId}
-            {...actionHandlers}
-          />
-        )}
+      {/* 表示形式は「表ライト」のみ。カード形式(TaskCards)は一覧から外した(types.ts 参照)。
+          戻すときは max-w の出し分けと TaskCards の分岐をここに復活させる */}
+      <main className="mx-auto max-w-none p-4">
+        <TaskTable
+          tasks={visibleTasks}
+          dense={layout === "tableLight"}
+          selectedIds={selectedIds}
+          onToggleSelect={toggleSelect}
+          onRangeSelectTo={rangeSelectTo}
+          onToggleWait={handleToggleWait}
+          onUpdateTask={handleUpdateTask}
+          focusedId={focusedId}
+          focusedField={focusedField}
+          onFocusCell={onFocusCell}
+          onFocusTask={setFocusedId}
+          editing={editingCell}
+          onEditingChange={setEditingCell}
+          {...actionHandlers}
+        />
+        {/* <TaskCards
+          tasks={visibleTasks}
+          selectedIds={selectedIds}
+          onToggleWait={handleToggleWait}
+          focusedId={focusedId}
+          onFocusTask={setFocusedId}
+          {...actionHandlers}
+        /> */}
 
         <p className="mt-6 text-center text-[11px] text-gray-400">
           <kbd>↑</kbd><kbd>↓</kbd> 行移動 / <kbd>←</kbd><kbd>→</kbd> 列移動(表) /{" "}
