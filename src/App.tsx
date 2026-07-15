@@ -27,6 +27,18 @@ import {
 import { parseClipboardText } from "./lib/clipboard";
 import { sortTasks } from "./lib/sort";
 import { exportTasksAsJson, migrateTask, repository } from "./lib/storage";
+import {
+  type BackupState,
+  backupNow,
+  chooseBackupDir,
+  disconnectBackupDir,
+  getBackupState,
+  notifyTasksChanged,
+  reconnectBackupDir,
+  restoreBackupDir,
+  setBackupNotifier,
+  subscribeBackup,
+} from "./lib/backup";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import Toolbar from "./components/Toolbar";
 import TaskTable, {
@@ -87,11 +99,17 @@ export default function App() {
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   const [toast, setToast] = useState("");
+  const [backupState, setBackupState] = useState<BackupState>(getBackupState);
   const toastTimer = useRef<number | undefined>(undefined);
+  /** 起動時1回だけ走る副作用から最新のタスクを見るための控え */
+  const tasksRef = useRef(tasks);
 
-  // 保存(タスクが変わるたびに localStorage へ)
+  // 保存(タスクが変わるたびに localStorage へ)。
+  // 同期フォルダへの控えはデバウンス付きの非同期なので、この主経路は止めない
   useEffect(() => {
+    tasksRef.current = tasks;
     repository.save(tasks);
+    notifyTasksChanged(tasks);
   }, [tasks]);
 
   useEffect(() => {
@@ -112,6 +130,14 @@ export default function App() {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(""), 3000);
   }, []);
+
+  // バックアップ層との接続: 状態の購読・トーストの差し込み・保存先の復元(起動時1回)
+  useEffect(() => {
+    setBackupNotifier(showToast);
+    const unsubscribe = subscribeBackup(setBackupState);
+    void restoreBackupDir(tasksRef.current);
+    return unsubscribe;
+  }, [showToast]);
 
   // ---------- 更新ヘルパー ----------
   const upsert = useCallback((updated: Task[]) => {
@@ -923,6 +949,11 @@ export default function App() {
         selectedCount={selectedIds.length}
         onExport={() => exportTasksAsJson(tasks)}
         onImportFile={handleImportFile}
+        backup={backupState}
+        onChooseBackupDir={() => void chooseBackupDir(tasks)}
+        onReconnectBackupDir={() => void reconnectBackupDir(tasks)}
+        onDisconnectBackupDir={() => void disconnectBackupDir()}
+        onBackupNow={() => void backupNow(tasks)}
         totals={totals}
       />
 

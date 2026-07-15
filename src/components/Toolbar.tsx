@@ -5,6 +5,7 @@ import { useRef, useState } from "react";
 import type { LayoutMode, ViewMode, WorkMode } from "../types";
 import { LAYOUT_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
+import type { BackupState } from "../lib/backup";
 
 /** ドロップダウン(その他)にまとめるビュー */
 const DROPDOWN_VIEWS: ViewMode[] = ["today", "done", "everything"];
@@ -35,6 +36,12 @@ interface Props {
   onExport: () => void;
   /** JSONファイルからの一括インポート(Issue #12) */
   onImportFile: (file: File) => void;
+  /** 同期フォルダへの自動バックアップの状態 */
+  backup: BackupState;
+  onChooseBackupDir: () => void;
+  onReconnectBackupDir: () => void;
+  onDisconnectBackupDir: () => void;
+  onBackupNow: () => void;
   totals: { estimate: number; actual: number; remain: number };
 }
 
@@ -155,11 +162,11 @@ export default function Toolbar(p: Props) {
           >
             💾 ▾
           </button>
-          {/* データメニュー(エクスポート/インポート)。Issue #12 */}
+          {/* データメニュー(エクスポート/インポート/自動バックアップ)。Issue #12 */}
           {dataMenuOpen && (
             <>
               <div className="fixed inset-0 z-40" onClick={() => setDataMenuOpen(false)} />
-              <div className="absolute right-0 top-10 z-50 w-60 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
+              <div className="absolute right-0 top-10 z-50 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
                 <button
                   className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
                   onClick={() => {
@@ -175,6 +182,96 @@ export default function Toolbar(p: Props) {
                 >
                   ⬆ インポート(JSONを読込)
                 </button>
+
+                <div className="my-1 border-t border-gray-200" />
+                <div className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-gray-400">
+                  自動バックアップ
+                </div>
+
+                {!p.backup.supported ? (
+                  <p className="px-3 pb-2 text-xs text-gray-500">
+                    この機能は Chrome / Edge でのみ使えます
+                  </p>
+                ) : !p.backup.connected ? (
+                  <>
+                    {/* 権限切れ: 保存済みのフォルダがあるので、選び直さず再接続だけで戻せる */}
+                    {p.backup.needsReconnect && (
+                      <button
+                        className="block w-full px-3 py-1.5 text-left text-sm font-semibold text-amber-700 hover:bg-amber-50"
+                        onClick={() => {
+                          p.onReconnectBackupDir();
+                          setDataMenuOpen(false);
+                        }}
+                      >
+                        🔄 バックアップ先を再接続{p.backup.dirName && `: ${p.backup.dirName}`}
+                      </button>
+                    )}
+                    <button
+                      className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => {
+                        p.onChooseBackupDir();
+                        setDataMenuOpen(false);
+                      }}
+                    >
+                      📁 バックアップ先フォルダを{p.backup.needsReconnect ? "選び直す" : "選択"}
+                    </button>
+                    <p
+                      className={`px-3 pb-2 text-xs ${
+                        p.backup.problem ? "text-amber-700" : "text-gray-500"
+                      }`}
+                    >
+                      {p.backup.problem
+                        ? `⚠ ${p.backup.problem}`
+                        : "OneDrive等の同期フォルダを選ぶと、変更のたびに自動で控えを取ります"}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="truncate px-3 text-xs text-gray-700" title={p.backup.dirName}>
+                      バックアップ先: <span className="font-semibold">{p.backup.dirName}</span>
+                      <span className="text-emerald-600">(接続中)</span>
+                    </p>
+                    <p
+                      className={`px-3 pb-1 text-xs ${
+                        p.backup.problem ? "text-amber-700" : "text-gray-500"
+                      }`}
+                    >
+                      {p.backup.problem
+                        ? `⚠ ${p.backup.problem}`
+                        : p.backup.lastSuccessAt
+                          ? `最終バックアップ: ${p.backup.lastSuccessAt} 成功`
+                          : "まだバックアップしていません"}
+                    </p>
+                    <button
+                      className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => {
+                        p.onBackupNow();
+                        setDataMenuOpen(false);
+                      }}
+                      title="保留中のときも、これで控えを最新の内容に上書きできます"
+                    >
+                      ⤓ 今すぐバックアップ
+                    </button>
+                    <button
+                      className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => {
+                        p.onReconnectBackupDir();
+                        setDataMenuOpen(false);
+                      }}
+                    >
+                      🔄 再接続
+                    </button>
+                    <button
+                      className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                      onClick={() => {
+                        p.onDisconnectBackupDir();
+                        setDataMenuOpen(false);
+                      }}
+                    >
+                      ✕ 接続を解除
+                    </button>
+                  </>
+                )}
               </div>
             </>
           )}

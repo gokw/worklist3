@@ -80,9 +80,17 @@ const migrate = migrateTask;
 
 export const repository: TaskRepository = new LocalStorageRepository();
 
+/**
+ * 全タスクをJSON文字列にする(エクスポートと自動バックアップで共通)。
+ * 人が読める整形済み。インポートがそのまま読み戻せる形式。
+ */
+export function serializeTasks(tasks: Task[]): string {
+  return JSON.stringify(tasks, null, 2);
+}
+
 /** バックアップ用: 全タスクをJSONファイルとしてダウンロード */
 export function exportTasksAsJson(tasks: Task[]): void {
-  const blob = new Blob([JSON.stringify(tasks, null, 2)], {
+  const blob = new Blob([serializeTasks(tasks)], {
     type: "application/json",
   });
   const url = URL.createObjectURL(blob);
