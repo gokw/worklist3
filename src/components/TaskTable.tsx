@@ -293,10 +293,14 @@ export default function TaskTable({
           </tr>
         </thead>
         <tbody>
-          {tasks.map((t) => {
+          {tasks.map((t, i) => {
             const act = actMin(t);
             const focused = t.id === focusedId;
             const st = derivedStatus(t);
+            // 次の行と日付が違えば、この行の下端に濃い実線を引いて日付の境目を示す。
+            // box-shadowはborder-collapseの影響を受けず<tr>にそのまま効くのでこちらを使う。
+            const nextTask = tasks[i + 1];
+            const isDateBoundary = !!nextTask && (nextTask.date ?? "") !== (t.date ?? "");
             return (
               <tr
                 key={t.id}
@@ -308,8 +312,8 @@ export default function TaskTable({
                   handlers.onEdit(t);
                 }}
                 className={`${taskBgClass(t)} hover:brightness-95 ${
-                  focused ? "outline outline-2 -outline-offset-2 outline-blue-600" : ""
-                }`}
+                  isDateBoundary ? "shadow-[inset_0_-2px_0_0_#9ca3af]" : ""
+                } ${focused ? "outline outline-2 -outline-offset-2 outline-blue-600" : ""}`}
               >
                 <td className={td}>
                   <span className="inline-flex items-center gap-1">
