@@ -49,6 +49,7 @@ import TaskTable, {
 // カード形式は一覧から外した(types.ts 参照)。戻すときはこの import と下の描画分岐を復活させる
 // import TaskCards from "./components/TaskCards";
 import TaskForm from "./components/TaskForm";
+import ShortcutHelpDialog from "./components/ShortcutHelpDialog";
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
@@ -126,6 +127,8 @@ export default function App() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  /** ショートカット一覧(?キー) */
+  const [helpOpen, setHelpOpen] = useState(false);
   const [toast, setToast] = useState("");
   const [backupState, setBackupState] = useState<BackupState>(getBackupState);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -734,21 +737,27 @@ export default function App() {
   // 完了したタスクも無ければ先頭行。
   const jumpToCurrent = useCallback(() => {
     if (visibleTasks.length === 0) return;
+
+    let target = visibleTasks[0];
     const running = visibleTasks.find((t) => derivedStatus(t) === "running");
     if (running) {
-      focusRow(running.id);
-      return;
+      target = running;
+    } else {
+      let lastDoneIdx = -1;
+      visibleTasks.forEach((t, i) => {
+        if (derivedStatus(t) === "done") lastDoneIdx = i;
+      });
+      if (lastDoneIdx !== -1)
+        target = visibleTasks[Math.min(lastDoneIdx + 1, visibleTasks.length - 1)];
     }
-    let lastDoneIdx = -1;
-    visibleTasks.forEach((t, i) => {
-      if (derivedStatus(t) === "done") lastDoneIdx = i;
-    });
-    if (lastDoneIdx !== -1) {
-      focusRow(visibleTasks[Math.min(lastDoneIdx + 1, visibleTasks.length - 1)].id);
-      return;
-    }
-    focusRow(visibleTasks[0].id);
-  }, [visibleTasks, focusRow]);
+
+    setFocusedId(target.id);
+    setAnchorId(target.id);
+    // カーソル行までスクロールはしない。一覧は先頭から見せる。
+    // (夕方に押すと、その日にやったタスクが全部上へ隠れてしまうため)
+    // スクロール枠は再描画を待たずに掴めるので、ここで即座に戻す
+    document.querySelector("[data-task-scroll]")?.scrollTo({ top: 0 });
+  }, [visibleTasks]);
 
   // ---------- カーソル列移動(←→キー。Excel風セル移動)Issue #5 ----------
   const onFocusCell = useCallback((id: string, field: EditableField) => {
@@ -841,9 +850,17 @@ export default function App() {
         seqOpen ||
         bulkOpen ||
         bulkAddOpen ||
-        importResult
+        importResult ||
+        helpOpen // 閉じる操作はヘルプ側が持つ(Esc / ? / クリック)
       )
         return;
+
+      // ?: ショートカット一覧(Shift+/ なので修飾キーの判定より前に見る)
+      if (e.key === "?") {
+        e.preventDefault();
+        setHelpOpen(true);
+        return;
+      }
 
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
@@ -866,6 +883,17 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key === "ArrowUp") {
         e.preventDefault();
         jumpCategoryGroup(-1);
+        return;
+      }
+      // Ctrl/⌘+PageUp/PageDown: 10行ずつ移動(修飾なしは5行。下の switch)
+      if ((e.ctrlKey || e.metaKey) && e.key === "PageDown") {
+        e.preventDefault();
+        moveFocus(10);
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key === "PageUp") {
+        e.preventDefault();
+        moveFocus(-10);
         return;
       }
       if (e.ctrlKey || e.metaKey || e.altKey) return;
@@ -918,6 +946,14 @@ export default function App() {
         case "home": // 「今どこをやっているか」へジャンプ: 実行中→無ければ完了の次→無ければ先頭
           e.preventDefault();
           jumpToCurrent();
+          break;
+        case "pagedown": // 5行下へ(Ctrl併用で10行。上の分岐)
+          e.preventDefault();
+          moveFocus(5);
+          break;
+        case "pageup": // 5行上へ
+          e.preventDefault();
+          moveFocus(-5);
           break;
         case "h": // カーソルタスクの日付を前日へ(Issue #7)
           if (!focused) break;
@@ -1034,6 +1070,7 @@ export default function App() {
     bulkOpen,
     bulkAddOpen,
     importResult,
+    helpOpen,
     openNewForm,
     handleClipboardImport,
     visibleTasks,
@@ -1144,21 +1181,16 @@ export default function App() {
           {...actionHandlers}
         /> */}
 
-        <p className="mt-6 text-center text-[11px] text-gray-400">
-          <kbd>↑</kbd><kbd>↓</kbd> 行移動 / <kbd>←</kbd><kbd>→</kbd> 列移動(表) /{" "}
-          <kbd>Ctrl+↑↓</kbd> 次/前のカテゴリへ / <kbd>Home</kbd> 今の作業位置へ /{" "}
-          <kbd>Shift</kbd>+<kbd>↑↓</kbd> 範囲選択 / <kbd>H</kbd> 日付-1 / <kbd>L</kbd> 日付+1 /{" "}
-          <kbd>Enter</kbd> セル編集(列未選択なら詳細) / <kbd>Ctrl+Enter</kbd> 詳細編集 /{" "}
-          <kbd>S</kbd> 開始 / <kbd>E</kbd> 終了 /{" "}
-          <kbd>I</kbd> 中断 / <kbd>W</kbd> 待ち / <kbd>C</kbd> コピー / <kbd>P</kbd> 延期 /{" "}
-          <kbd>Space</kbd> 選択 / <kbd>Del</kbd> 削除(複数選択時は一括)
-          <br />
-          <kbd>N</kbd> 新規追加 / <kbd>V</kbd> クリップボード取込 / <kbd>M</kbd> 仕事⇔個人モード /{" "}
-          <kbd>T</kbd> 表⇔カード切替
+        {/* 一覧をベタ書きするのはやめ、?キーのヘルプへ寄せた(ShortcutHelpDialog) */}
+        <p className="mt-4 text-center text-[11px] text-gray-400">
+          <kbd className="rounded border border-gray-300 bg-gray-50 px-1 font-mono">?</kbd>{" "}
+          でショートカットキー一覧
         </p>
       </main>
 
       {/* ダイアログ類 */}
+      {helpOpen && <ShortcutHelpDialog onClose={() => setHelpOpen(false)} />}
+
       {formTask && (
         <TaskForm
           task={formTask}

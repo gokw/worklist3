@@ -272,8 +272,12 @@ export default function TaskTable({
   const minTableW = fixedSum + (dense ? TITLE_MIN_DENSE : TITLE_MIN_NORMAL);
 
   return (
-    // ヘッダー固定のため、この枠内で縦横スクロールさせる(画面高いっぱい)
-    <div className="max-h-[calc(100vh-8.5rem)] overflow-auto rounded border border-gray-300 shadow-sm">
+    // ヘッダー固定のため、この枠内で縦横スクロールさせる(画面高いっぱい)。
+    // data-task-scroll は App が「Homeキーで一覧を先頭まで戻す」ために掴む目印
+    <div
+      data-task-scroll
+      className="max-h-[calc(100vh-8.5rem)] overflow-auto rounded border border-gray-300 shadow-sm"
+    >
       <table
         className="w-full table-fixed border-collapse bg-white"
         style={{ minWidth: minTableW }}
