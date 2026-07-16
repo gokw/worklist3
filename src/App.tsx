@@ -885,17 +885,7 @@ export default function App() {
         jumpCategoryGroup(-1);
         return;
       }
-      // Ctrl/⌘+PageUp/PageDown: 10行ずつ移動(修飾なしは5行。下の switch)
-      if ((e.ctrlKey || e.metaKey) && e.key === "PageDown") {
-        e.preventDefault();
-        moveFocus(10);
-        return;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key === "PageUp") {
-        e.preventDefault();
-        moveFocus(-10);
-        return;
-      }
+      // Ctrl+PageUp/PageDown はブラウザのタブ切替と競合するため使わない(修飾なしの5行移動のみ)
       if (e.ctrlKey || e.metaKey || e.altKey) return;
 
       // カーソル位置のタスク(Excel版のアクティブセル行に相当)
@@ -947,7 +937,7 @@ export default function App() {
           e.preventDefault();
           jumpToCurrent();
           break;
-        case "pagedown": // 5行下へ(Ctrl併用で10行。上の分岐)
+        case "pagedown": // 5行下へ
           e.preventDefault();
           moveFocus(5);
           break;
