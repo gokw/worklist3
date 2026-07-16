@@ -26,7 +26,7 @@ import {
 } from "./lib/logic";
 import { parseClipboardText } from "./lib/clipboard";
 import { sortTasks } from "./lib/sort";
-import { exportTasksAsJson, migrateTask, repository } from "./lib/storage";
+import { exportTasksAsJson, migrateTask, repository, tasksToCsv } from "./lib/storage";
 import {
   type BackupState,
   backupNow,
@@ -535,6 +535,23 @@ export default function App() {
       showToast("クリップボードを読み取れませんでした(ブラウザの許可が必要です)");
     }
   }, [showToast, defaultScope, tasks, revealTask]);
+
+  /**
+   * 一覧に出ているタスクをCSVにしてクリップボードへ。生成AIに渡して日記にする用途。
+   * 対象は「今表示しているもの」なので、絞り込み(期間・完了のみ 等)がそのまま効く。
+   */
+  const handleCopyCsv = useCallback(async () => {
+    if (visibleTasks.length === 0) {
+      showToast("コピーするタスクがありません(絞り込みを確認してください)");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(tasksToCsv(visibleTasks));
+      showToast(`CSVをコピーしました(${visibleTasks.length}件)`);
+    } catch {
+      showToast("クリップボードにコピーできませんでした");
+    }
+  }, [visibleTasks, showToast]);
 
   // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスク・モード対象外は除く
   const handleRandomStart = useCallback(() => {
@@ -1088,6 +1105,8 @@ export default function App() {
         onClearSelection={clearSelection}
         selectedCount={selectedIds.length}
         onExport={() => exportTasksAsJson(tasks)}
+        onCopyCsv={handleCopyCsv}
+        visibleCount={visibleTasks.length}
         onImportFile={handleImportFile}
         backup={backupState}
         onChooseBackupDir={() => void chooseBackupDir(tasks)}
