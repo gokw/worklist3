@@ -5,6 +5,7 @@
 // ==============================================================
 import type { Task } from "../types";
 import { todayStr } from "./date";
+import { actMin } from "./logic";
 
 export interface TaskRepository {
   load(): Task[];
@@ -87,6 +88,35 @@ export const repository: TaskRepository = new LocalStorageRepository();
  */
 export function serializeTasks(tasks: Task[]): string {
   return JSON.stringify(tasks, null, 2);
+}
+
+const CSV_HEADER = ["日付", "開始", "終了", "実績分", "タスク名", "カテゴリ"];
+
+/** CSVの1項目を整える。区切り・引用符・改行を含むなら " で囲み、" は "" にする */
+function csvCell(v: string | number | undefined): string {
+  const s = v === undefined ? "" : String(v);
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+/**
+ * 一覧に出ているタスクをCSV(1行目は見出し)にする。
+ * 生成AIに渡して日記にする用途なので、日付は解釈のぶれない YYYY-MM-DD のまま出す。
+ * 改行は CRLF(メモ帳・Excelがそのまま読める)。
+ */
+export function tasksToCsv(tasks: Task[]): string {
+  const rows = tasks.map((t) =>
+    [
+      t.date ?? "",
+      t.actStart ?? "",
+      t.actEnd ?? "",
+      actMin(t) ?? "",
+      t.title,
+      t.category,
+    ]
+      .map(csvCell)
+      .join(",")
+  );
+  return [CSV_HEADER.join(","), ...rows].join("\r\n");
 }
 
 /**

@@ -97,6 +97,10 @@ interface Props {
   onClearSelection: () => void;
   selectedCount: number;
   onExport: () => void;
+  /** 一覧に出ているタスクをCSVにしてクリップボードへ */
+  onCopyCsv: () => void;
+  /** 一覧に出ている件数(CSVコピーが何件対象かを示す) */
+  visibleCount: number;
   /** JSONファイルからの一括インポート(Issue #12) */
   onImportFile: (file: File) => void;
   /** 同期フォルダへの自動バックアップの状態 */
@@ -291,6 +295,24 @@ export default function Toolbar(p: Props) {
                 >
                   ⬆ インポート(JSONを読込)
                 </button>
+
+                <div className="my-1 border-t border-gray-200" />
+
+                {/* 表示中のものをCSVでコピー(生成AIに渡して日記にする用途)。
+                    対象は今の絞り込みの結果なので、専用のフィルタは持たない */}
+                <button
+                  className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    p.onCopyCsv();
+                    setDataMenuOpen(false);
+                  }}
+                  title="今の絞り込みで表示しているタスクをCSVにしてクリップボードへ"
+                >
+                  📋 表示中をCSVでコピー ({p.visibleCount}件)
+                </button>
+                <p className="px-3 pb-2 text-xs text-gray-500">
+                  完了だけ欲しいときは 完了:「完了のみ」、期間は「カスタム」で指定できます
+                </p>
 
                 <div className="my-1 border-t border-gray-200" />
                 <div className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-gray-400">
