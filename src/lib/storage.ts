@@ -75,6 +75,7 @@ export function migrateTask(raw: Record<string, unknown>): Task {
   if (typeof t.waiting !== "boolean") t.waiting = false;
   if (!t.createdAt) t.createdAt = new Date().toISOString();
   if (!t.updatedAt) t.updatedAt = t.createdAt;
+  // gcalEventId(カレンダー連携)は任意フィールド。{...raw} でそのまま持ち回るので補完不要
   return t;
 }
 

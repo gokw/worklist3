@@ -74,6 +74,11 @@ export interface Task {
   links: string[];
   /** 分割・準備タスクの親タスクID */
   parentId?: string;
+  /**
+   * Googleカレンダーへ同期済みのイベントID(未同期なら undefined)。
+   * これがあれば patch(更新)、無ければ insert(新規)。カレンダー連携でのみ使う。
+   */
+  gcalEventId?: string;
   createdAt: string;
   updatedAt: string;
 }

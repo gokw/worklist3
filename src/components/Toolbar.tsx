@@ -6,6 +6,7 @@ import type { DoneFilter, ViewMode, WorkMode } from "../types";
 import { DONE_FILTER_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
 import type { BackupState } from "../lib/backup";
+import { loadGcalConfig, saveGcalConfig } from "../lib/gcalClient";
 
 /** ドロップダウン(その他)にまとめる期間 */
 const DROPDOWN_VIEWS: ViewMode[] = ["today", "everything", "custom"];
@@ -93,6 +94,10 @@ interface Props {
   onRandomStart: () => void;
   onSequentialStart: () => void;
   onBulkEdit: () => void;
+  /** 選択タスクをGoogleカレンダーへ登録/更新 */
+  onSyncCalendar: () => void;
+  /** カレンダー連携をリセット(トークン破棄) */
+  onResetCalendarAuth: () => void;
   onSelectAllVisible: () => void;
   onClearSelection: () => void;
   selectedCount: number;
@@ -130,6 +135,8 @@ export default function Toolbar(p: Props) {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [dataMenuOpen, setDataMenuOpen] = useState(false);
   const [history, setHistory] = useState<string[]>(loadFilterHistory);
+  const [gcalClientId, setGcalClientId] = useState(() => loadGcalConfig().clientId);
+  const [gcalCalendarId, setGcalCalendarId] = useState(() => loadGcalConfig().calendarId);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropdownActive = DROPDOWN_VIEWS.includes(p.viewMode);
   const viewMenuRef = useDismiss(viewMenuOpen, () => setViewMenuOpen(false));
@@ -267,6 +274,14 @@ export default function Toolbar(p: Props) {
           >
             ✏️ 一括編集 ({p.selectedCount})
           </button>
+          <button
+            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+            disabled={p.selectedCount === 0}
+            onClick={p.onSyncCalendar}
+            title="選択した予定(開始時刻あり)をGoogleカレンダーへ登録/更新。時刻なしはスキップ"
+          >
+            📅 カレンダー登録 ({p.selectedCount})
+          </button>
           <div className="relative" ref={dataMenuRef}>
           <button
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
@@ -313,6 +328,45 @@ export default function Toolbar(p: Props) {
                 <p className="px-3 pb-2 text-xs text-gray-500">
                   完了だけ欲しいときは 完了:「完了のみ」、期間は「カスタム」で指定できます
                 </p>
+
+                <div className="my-1 border-t border-gray-200" />
+                <div className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-gray-400">
+                  Google カレンダー連携
+                </div>
+                <div className="px-3 pb-2">
+                  <label className="mb-0.5 block text-[11px] text-gray-500">Client ID</label>
+                  <input
+                    type="text"
+                    className="mb-1.5 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                    placeholder="xxxxx.apps.googleusercontent.com"
+                    value={gcalClientId}
+                    onChange={(e) => {
+                      setGcalClientId(e.target.value);
+                      saveGcalConfig({ clientId: e.target.value });
+                    }}
+                  />
+                  <label className="mb-0.5 block text-[11px] text-gray-500">Calendar ID</label>
+                  <input
+                    type="text"
+                    className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                    placeholder="xxxxx@group.calendar.google.com"
+                    value={gcalCalendarId}
+                    onChange={(e) => {
+                      setGcalCalendarId(e.target.value);
+                      saveGcalConfig({ calendarId: e.target.value });
+                    }}
+                  />
+                  <button
+                    className="mt-1.5 text-xs text-gray-500 underline hover:text-gray-700"
+                    onClick={() => p.onResetCalendarAuth()}
+                    title="メモリ上のアクセストークンを破棄する(次回は再取得。設定値は消えない)"
+                  >
+                    連携をリセット(サインアウト)
+                  </button>
+                  <p className="mt-1 text-[11px] text-gray-400">
+                    予定を選んで「📅 カレンダー登録」で専用カレンダーへ同期します
+                  </p>
+                </div>
 
                 <div className="my-1 border-t border-gray-200" />
                 <div className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-gray-400">

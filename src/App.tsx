@@ -50,6 +50,9 @@ import TaskTable, {
 // import TaskCards from "./components/TaskCards";
 import TaskForm from "./components/TaskForm";
 import ShortcutHelpDialog from "./components/ShortcutHelpDialog";
+import CalendarSyncResultDialog from "./components/CalendarSyncResultDialog";
+import { syncTasksToCalendar, type SyncSummary } from "./lib/gcalMap";
+import { acquireToken, createGoogleCalendarClient, loadGcalConfig, resetGcalAuth } from "./lib/gcalClient";
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
@@ -129,6 +132,8 @@ export default function App() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   /** ショートカット一覧(?キー) */
   const [helpOpen, setHelpOpen] = useState(false);
+  /** カレンダー登録の結果 */
+  const [calSyncResult, setCalSyncResult] = useState<SyncSummary | null>(null);
   const [toast, setToast] = useState("");
   const [backupState, setBackupState] = useState<BackupState>(getBackupState);
   const toastTimer = useRef<number | undefined>(undefined);
@@ -556,6 +561,53 @@ export default function App() {
     }
   }, [visibleTasks, showToast]);
 
+  /**
+   * 選択したタスクをGoogleカレンダーへ登録/更新する(手動upsert・deleteはしない)。
+   * 認証はこのボタン押下(ユーザー操作)を起点にする。成功分の gcalEventId を保存し、
+   * 結果はダイアログで件数報告する。予定でないもの(時刻なし)は黙ってスキップ。
+   */
+  const handleSyncCalendar = useCallback(async () => {
+    const { clientId, calendarId } = loadGcalConfig();
+    if (!clientId || !calendarId) {
+      showToast("Client ID / Calendar ID を 💾 メニューで設定してください");
+      return;
+    }
+    const targets = selectedIds
+      .map((id) => tasks.find((t) => t.id === id))
+      .filter((t): t is Task => !!t);
+    if (targets.length === 0) return;
+
+    // 初回のみ同意画面。以降はセッションがあれば画面なしで取得(ポップアップブロック回避のため
+    // ボタン押下の同期的な流れの中で呼ぶ)
+    try {
+      await acquireToken(clientId);
+    } catch (e) {
+      showToast(`カレンダー連携を中止しました: ${e instanceof Error ? e.message : ""}`);
+      return;
+    }
+
+    const client = createGoogleCalendarClient(clientId, calendarId);
+    const idUpdates: { id: string; eventId: string }[] = [];
+    const summary = await syncTasksToCalendar(targets, client, (taskId, eventId) =>
+      idUpdates.push({ id: taskId, eventId })
+    );
+    // 成功分だけ gcalEventId を書き戻す(失敗した件は未同期のまま=押し直しでリトライ)
+    if (idUpdates.length > 0) {
+      setTasks((prev) =>
+        prev.map((t) => {
+          const u = idUpdates.find((x) => x.id === t.id);
+          return u ? { ...t, gcalEventId: u.eventId } : t;
+        })
+      );
+    }
+    setCalSyncResult(summary);
+  }, [selectedIds, tasks, showToast]);
+
+  const handleResetCalendarAuth = useCallback(() => {
+    resetGcalAuth();
+    showToast("カレンダー連携をリセットしました(トークンを破棄)");
+  }, [showToast]);
+
   // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスク・モード対象外は除く
   const handleRandomStart = useCallback(() => {
     const candidates = tasks.filter(
@@ -851,6 +903,7 @@ export default function App() {
         bulkOpen ||
         bulkAddOpen ||
         importResult ||
+        calSyncResult ||
         helpOpen // 閉じる操作はヘルプ側が持つ(Esc / ? / クリック)
       )
         return;
@@ -1060,6 +1113,7 @@ export default function App() {
     bulkOpen,
     bulkAddOpen,
     importResult,
+    calSyncResult,
     helpOpen,
     openNewForm,
     handleClipboardImport,
@@ -1128,6 +1182,8 @@ export default function App() {
         onRandomStart={handleRandomStart}
         onSequentialStart={handleSequentialStart}
         onBulkEdit={() => selectedIds.length > 0 && setBulkOpen(true)}
+        onSyncCalendar={handleSyncCalendar}
+        onResetCalendarAuth={handleResetCalendarAuth}
         onSelectAllVisible={selectAllVisible}
         onClearSelection={clearSelection}
         selectedCount={selectedIds.length}
@@ -1180,6 +1236,9 @@ export default function App() {
 
       {/* ダイアログ類 */}
       {helpOpen && <ShortcutHelpDialog onClose={() => setHelpOpen(false)} />}
+      {calSyncResult && (
+        <CalendarSyncResultDialog result={calSyncResult} onClose={() => setCalSyncResult(null)} />
+      )}
 
       {formTask && (
         <TaskForm
