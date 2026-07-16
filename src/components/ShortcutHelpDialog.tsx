@@ -14,7 +14,6 @@ const TASK_KEYS: [string, string][] = [
   ["↑ / ↓", "行(タスク)を移動"],
   ["← / →", "列(項目)を移動"],
   ["PageUp / PageDown", "5行ずつ移動"],
-  ["Ctrl + PageUp / PageDown", "10行ずつ移動"],
   ["Ctrl + ↑ / ↓", "前/次のカテゴリの先頭へ"],
   ["Home", "今の作業位置へ(一覧は先頭から表示)"],
   ["Shift + ↑ / ↓", "範囲選択"],
