@@ -48,6 +48,8 @@ export interface BackupState {
   problem: string;
   /** 権限切れなどで再接続(ユーザー操作)が必要か */
   needsReconnect: boolean;
+  /** 警告を一時停止している期限(ms)。0=停止していない。Issue #20 */
+  snoozedUntil: number;
 }
 
 let state: BackupState = {
@@ -57,7 +59,16 @@ let state: BackupState = {
   lastSuccessAt: "",
   problem: "",
   needsReconnect: false,
+  snoozedUntil: 0,
 };
+
+/**
+ * バックアップが要注意状態か(スヌーズは考慮しない、生の異常判定)。Issue #20
+ * 権限切れ、または接続中なのに書き込み失敗/ガード保留が起きている状態。
+ */
+export function backupNeedsAttention(s: BackupState): boolean {
+  return s.needsReconnect || (s.connected && s.problem !== "");
+}
 
 const listeners = new Set<(s: BackupState) => void>();
 
@@ -82,6 +93,38 @@ function setState(patch: Partial<BackupState>): void {
 let notify: (msg: string) => void = () => {};
 export function setBackupNotifier(fn: (msg: string) => void): void {
   notify = fn;
+}
+
+// -------------------------------------------------------------
+// 警告の停止(スヌーズ)。Issue #20。メモリのみ=リロードで解除
+// -------------------------------------------------------------
+let snoozeUntil = 0;
+let snoozeTimer: number | undefined;
+/** 異常を1度トーストしたら success まで繰り返さない(書き込み毎の連発を防ぐ) */
+let warned = false;
+
+/** 異常を状態へ反映し、スヌーズ中でなく未通知なら1度だけトーストする */
+function reportProblem(problem: string, extra?: Partial<BackupState>): void {
+  setState({ problem, ...extra });
+  if (!warned && Date.now() >= snoozeUntil) notify(`⚠ ${problem}`);
+  warned = true;
+}
+
+/** ◯分だけ警告を止める(15/30/60分を想定)。期限が来たら状態を更新して警告を出し直す */
+export function snoozeBackupWarning(minutes: number): void {
+  snoozeUntil = Date.now() + minutes * 60_000;
+  setState({ snoozedUntil: snoozeUntil });
+  window.clearTimeout(snoozeTimer);
+  snoozeTimer = window.setTimeout(() => {
+    snoozeUntil = 0;
+    setState({ snoozedUntil: 0 });
+  }, minutes * 60_000);
+}
+
+export function clearBackupSnooze(): void {
+  snoozeUntil = 0;
+  window.clearTimeout(snoozeTimer);
+  setState({ snoozedUntil: 0 });
 }
 
 // -------------------------------------------------------------
@@ -230,18 +273,15 @@ async function writeBackup(tasks: Task[], force: boolean): Promise<void> {
 
   const reason = force ? "" : guardReason(tasks.length);
   if (reason) {
-    setState({ problem: reason });
-    notify(`⚠ ${reason}`);
+    reportProblem(reason);
     return;
   }
 
   try {
     if (!(await ensurePermission(dir, false))) {
-      setState({
-        problem: "バックアップ先の権限が切れています。💾メニューから再接続してください",
+      reportProblem("バックアップ先の権限が切れています。💾メニューから再接続してください", {
         needsReconnect: true,
       });
-      notify("⚠ バックアップ先の権限が切れています。💾メニューから再接続してください");
       return;
     }
     const text = serializeTasks(tasks);
@@ -250,14 +290,14 @@ async function writeBackup(tasks: Task[], force: boolean): Promise<void> {
     await writeJson(backups, `worklist3-${todayStr()}.json`, text);
     // ここまで来れば控えは取れている。以降の失敗で「失敗」と報告しない
     lastBackedUpCount = tasks.length;
+    warned = false; // 成功したら次の異常はまた1度通知する
     setState({ lastSuccessAt: nowHHMM(), problem: "", needsReconnect: false });
     await cleanupRotation(dir).catch((e) =>
       console.error("古い世代の掃除に失敗しました", e)
     );
   } catch (e) {
     console.error("バックアップの書き込みに失敗しました", e);
-    setState({ problem: "バックアップの書き込みに失敗しました" });
-    notify("⚠ バックアップの書き込みに失敗しました");
+    reportProblem("バックアップの書き込みに失敗しました");
   }
 }
 
