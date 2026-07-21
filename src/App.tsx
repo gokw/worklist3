@@ -157,6 +157,12 @@ export default function App() {
     null
   );
   const undoTimer = useRef<number | undefined>(undefined);
+  /**
+   * H/Lで日付を動かしている間の「見た目の並び固定」(Issue #14 追加)。
+   * order = ずらす前の表示順のid列。窓が閉じるまでこの順で描画し、閉じたら整列＋中央寄せ。
+   */
+  const [dateShift, setDateShift] = useState<{ taskId: string; order: string[] } | null>(null);
+  const dateShiftTimer = useRef<number | undefined>(undefined);
 
   // 保存(タスクが変わるたびに localStorage へ)。
   // 同期フォルダへの控えはデバウンス付きの非同期なので、この主経路は止めない
@@ -199,20 +205,31 @@ export default function App() {
   }, []);
 
   // ---------- undo(単段・自動確定)。Issue #14 ----------
-  /** 保留中のundoを確定(=もう戻せない)。あらゆる変更操作の頭で呼び、直前分を確定する */
+  /**
+   * 保留中のundoを確定(=もう戻せない)。あらゆる変更操作の頭で呼び、直前分を確定する。
+   * H/Lの並び固定セッションも一緒に終わらせ(=整列に戻る)、undoトーストも下げる。
+   */
   const commitPendingUndo = useCallback(() => {
     pendingUndo.current = null;
     window.clearTimeout(undoTimer.current);
+    window.clearTimeout(dateShiftTimer.current);
+    setDateShift(null);
+    setToast((prev) => (prev?.undoable ? null : prev));
   }, []);
 
-  /** 操作の直前に呼ぶ。直前のundoを確定し、今の状態をスナップショットして窓を開く */
+  /**
+   * 操作の直前に呼ぶ。直前のundoを確定し、今の状態をスナップショットして窓を開く。
+   * autoExpire=false のときは窓の自動失効を張らない(H/Lは自前のタイマで管理する)。
+   */
   const pushUndo = useCallback(
-    (label: string) => {
+    (label: string, autoExpire = true) => {
       commitPendingUndo();
       pendingUndo.current = { tasks: tasksRef.current, focusedId: focusedIdRef.current, label };
-      undoTimer.current = window.setTimeout(() => {
-        pendingUndo.current = null;
-      }, UNDO_WINDOW_MS);
+      if (autoExpire) {
+        undoTimer.current = window.setTimeout(() => {
+          pendingUndo.current = null;
+        }, UNDO_WINDOW_MS);
+      }
     },
     [commitPendingUndo]
   );
@@ -229,6 +246,19 @@ export default function App() {
     setAnchorId(u.focusedId);
     showToast(`元に戻しました: ${u.label}`);
   }, [commitPendingUndo, showToast]);
+
+  /**
+   * H/Lの並び固定を終了する(Issue #14)。commitPendingUndo が固定解除＋undo確定を行う。
+   * center=true(窓が閉じた)なら、整列後にそのタスクを画面中央へ寄せる。
+   * center=false(途中でカーソルが別行へ動いた)なら、整列だけしてカーソルに追従させる。
+   */
+  const endDateShift = useCallback(
+    (center: boolean, taskId?: string) => {
+      if (center && taskId) pendingRevealId.current = taskId;
+      commitPendingUndo();
+    },
+    [commitPendingUndo]
+  );
 
   // バックアップ層との接続: 状態の購読・トーストの差し込み・保存先の復元(起動時1回)
   useEffect(() => {
@@ -335,8 +365,25 @@ export default function App() {
     if (categoryFilter) list = list.filter((t) => t.category === categoryFilter);
     // 5. タスク名
     if (titleMatcher) list = list.filter((t) => titleMatcher(t.title));
+    // H/Lで日付を動かしている間は、見た目の並びを「ずらす前の順」に固定する(Issue #14)。
+    // 窓が閉じたら dateShift が null に戻り、下の通常の並べ替えに切り替わる。
+    if (dateShift) {
+      const pos = new Map(dateShift.order.map((id, i) => [id, i] as const));
+      return [...list].sort(
+        (a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity)
+      );
+    }
     return sortTasks(list);
-  }, [tasks, matchesMode, matchesPeriod, doneFilter, plannedOnly, categoryFilter, titleMatcher]);
+  }, [
+    tasks,
+    matchesMode,
+    matchesPeriod,
+    doneFilter,
+    plannedOnly,
+    categoryFilter,
+    titleMatcher,
+    dateShift,
+  ]);
 
   /**
    * 指定タスクが今の絞り込みで隠れているなら、見えるようになる最小限だけ緩めてカーソルを合わせる。
@@ -936,13 +983,27 @@ export default function App() {
   // ---------- カーソルタスクの日付を前後(h/l キー。Issue #7 / Excel NextDay・PreviousDay 相当)----------
   const shiftFocusedDate = useCallback(
     (task: Task, delta: number) => {
-      pushUndo("日付移動");
+      // 同じタスクを続けて動かしているときは、まとめて1つのundo・並びも固定のまま(連打対応)。
+      // 新規セッションのときだけスナップショットと「ずらす前の並び」を確保する。
+      const fresh = !dateShift || dateShift.taskId !== task.id;
+      if (fresh) {
+        pushUndo("日付移動", false); // 失効は下の dateShiftTimer が管理する
+        setDateShift({ taskId: task.id, order: visibleTasks.map((t) => t.id) });
+      }
       const newDate = addToDate(task.date ?? todayStr(), "day", delta);
       upsert([{ ...task, date: newDate, updatedAt: new Date().toISOString() }]);
       showToast(`${task.title || "(無題)"} → ${formatDateJa(newDate)}`, true);
+      // 窓(=固定)の終了タイマ。押すたびに延長し、止まったら整列＋中央寄せ
+      window.clearTimeout(dateShiftTimer.current);
+      dateShiftTimer.current = window.setTimeout(() => endDateShift(true, task.id), UNDO_WINDOW_MS);
     },
-    [upsert, showToast, pushUndo]
+    [dateShift, visibleTasks, upsert, showToast, pushUndo, endDateShift]
   );
+
+  // H/Lの固定中にカーソルが別タスクへ動いたら、整列してカーソルに追従する(中央寄せはしない)
+  useEffect(() => {
+    if (dateShift && focusedId !== dateShift.taskId) endDateShift(false);
+  }, [focusedId, dateShift, endDateShift]);
 
   // ---------- 範囲選択(Shift+クリック / Shift+↑↓。Issue #8)----------
   /** 基準(anchor)から id までの表示順の連続範囲を選択 */
