@@ -290,11 +290,12 @@ export default function TaskTable({
   const minTableW = fixedSum + (dense ? TITLE_MIN_DENSE : TITLE_MIN_NORMAL);
 
   return (
-    // ヘッダー固定のため、この枠内で縦横スクロールさせる(画面高いっぱい)。
+    // ヘッダー固定のため、この枠内で縦横スクロールさせる。親(main)が flex なので
+    // flex-1+min-h-0 で残り高さいっぱいに広がる(ページ自体はスクロールしない=固定ヘッダが隠れない)。
     // data-task-scroll は App が「Homeキーで一覧を先頭まで戻す」ために掴む目印
     <div
       data-task-scroll
-      className="max-h-[calc(100vh-8.5rem)] overflow-auto rounded border border-gray-300 shadow-sm"
+      className="min-h-0 flex-1 overflow-auto rounded border border-gray-300 shadow-sm"
     >
       <table
         className="w-full table-fixed border-collapse bg-white"
@@ -333,7 +334,8 @@ export default function TaskTable({
                   if ((e.target as HTMLElement).closest("button, input, select, a, textarea")) return;
                   handlers.onEdit(t);
                 }}
-                className={`${taskBgClass(t)} hover:brightness-95 ${
+                // scroll-mt は、カーソルで先頭付近へ寄せたとき固定ヘッダの下に潜り込まないための余白
+                className={`scroll-mt-8 ${taskBgClass(t)} hover:brightness-95 ${
                   isDateBoundary ? "shadow-[inset_0_-2px_0_0_#9ca3af]" : ""
                 } ${focused ? "outline outline-2 -outline-offset-2 outline-blue-600" : ""}`}
               >

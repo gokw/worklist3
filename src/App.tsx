@@ -1318,7 +1318,9 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    // 画面の高さに固定し、ページ自体はスクロールさせない(表のコンテナだけがスクロールする)。
+    // こうしないとページが少し溢れてウィンドウがスクロールし、固定ヘッダがツールバーの裏に隠れる
+    <div className="flex h-screen flex-col overflow-hidden bg-gray-50">
       <Toolbar
         selectedDate={selectedDate}
         onDateChange={setSelectedDate}
@@ -1369,7 +1371,7 @@ export default function App() {
 
       {/* 表示形式は「表ライト」のみ。カード形式(TaskCards)は一覧から外した(types.ts 参照)。
           戻すときは max-w の出し分けと TaskCards の分岐をここに復活させる */}
-      <main className="mx-auto max-w-none p-4">
+      <main className="mx-auto flex w-full min-h-0 max-w-none flex-1 flex-col p-4">
         <TaskTable
           tasks={visibleTasks}
           dense={layout === "tableLight"}
