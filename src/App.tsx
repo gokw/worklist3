@@ -65,6 +65,9 @@ import type { ParsedRow } from "./lib/bulkParse";
 // URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
 const urlInit = readUrlSettings();
 
+/** undoできる窓の長さ(ms)。トースト表示中=この間だけ元に戻せる。Issue #14 */
+const UNDO_WINDOW_MS = 6000;
+
 /**
  * クリップボードをプレーン/リッチの両方で読む。
  * read() はブラウザ・権限によっては使えないので、その場合は readText() へ落とす。
@@ -136,13 +139,24 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   /** カレンダー登録の結果 */
   const [calSyncResult, setCalSyncResult] = useState<SyncSummary | null>(null);
-  const [toast, setToast] = useState("");
+  /** トースト。undoable=true のとき「元に戻す」ボタンを出す(Issue #14) */
+  const [toast, setToast] = useState<{ text: string; undoable: boolean } | null>(null);
   const [backupState, setBackupState] = useState<BackupState>(getBackupState);
   const toastTimer = useRef<number | undefined>(undefined);
   /** 起動時1回だけ走る副作用から最新のタスクを見るための控え */
   const tasksRef = useRef(tasks);
+  /** カーソル位置の最新値(undoスナップショットで参照) */
+  const focusedIdRef = useRef<string | null>(null);
   /** revealTask で案内する行。一覧に現れたらスクロールする */
   const pendingRevealId = useRef<string | null>(null);
+  /**
+   * 直前の操作のスナップショット(単段・自動確定のundo。Issue #14)。
+   * 次の操作をすると確定(=消える)。窓(トースト表示中)だけ元に戻せる。
+   */
+  const pendingUndo = useRef<{ tasks: Task[]; focusedId: string | null; label: string } | null>(
+    null
+  );
+  const undoTimer = useRef<number | undefined>(undefined);
 
   // 保存(タスクが変わるたびに localStorage へ)。
   // 同期フォルダへの控えはデバウンス付きの非同期なので、この主経路は止めない
@@ -151,6 +165,10 @@ export default function App() {
     repository.save(tasks);
     notifyTasksChanged(tasks);
   }, [tasks]);
+
+  useEffect(() => {
+    focusedIdRef.current = focusedId;
+  }, [focusedId]);
 
   useEffect(() => {
     localStorage.setItem("worklist3.mode", mode);
@@ -170,11 +188,47 @@ export default function App() {
     });
   }, [mode, viewMode, doneFilter, plannedOnly, categoryFilter, titleFilter, customFrom, customTo]);
 
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
+  /** undoできる操作のトーストは、元に戻せる窓(UNDO_WINDOW_MS)と同じ長さ出す */
+  const showToast = useCallback((msg: string, undoable = false) => {
+    setToast({ text: msg, undoable });
     window.clearTimeout(toastTimer.current);
-    toastTimer.current = window.setTimeout(() => setToast(""), 3000);
+    toastTimer.current = window.setTimeout(
+      () => setToast(null),
+      undoable ? UNDO_WINDOW_MS : 3000
+    );
   }, []);
+
+  // ---------- undo(単段・自動確定)。Issue #14 ----------
+  /** 保留中のundoを確定(=もう戻せない)。あらゆる変更操作の頭で呼び、直前分を確定する */
+  const commitPendingUndo = useCallback(() => {
+    pendingUndo.current = null;
+    window.clearTimeout(undoTimer.current);
+  }, []);
+
+  /** 操作の直前に呼ぶ。直前のundoを確定し、今の状態をスナップショットして窓を開く */
+  const pushUndo = useCallback(
+    (label: string) => {
+      commitPendingUndo();
+      pendingUndo.current = { tasks: tasksRef.current, focusedId: focusedIdRef.current, label };
+      undoTimer.current = window.setTimeout(() => {
+        pendingUndo.current = null;
+      }, UNDO_WINDOW_MS);
+    },
+    [commitPendingUndo]
+  );
+
+  const performUndo = useCallback(() => {
+    const u = pendingUndo.current;
+    if (!u) {
+      showToast("元に戻せる操作がありません");
+      return;
+    }
+    commitPendingUndo();
+    setTasks(u.tasks);
+    setFocusedId(u.focusedId);
+    setAnchorId(u.focusedId);
+    showToast(`元に戻しました: ${u.label}`);
+  }, [commitPendingUndo, showToast]);
 
   // バックアップ層との接続: 状態の購読・トーストの差し込み・保存先の復元(起動時1回)
   useEffect(() => {
@@ -202,8 +256,15 @@ export default function App() {
     setTasks((prev) => prev.filter((t) => !idSet.has(t.id)));
   }, []);
 
-  // インライン編集の保存(1件更新)
-  const handleUpdateTask = useCallback((t: Task) => upsert([t]), [upsert]);
+  // インライン編集の保存(1件更新)。トーストを出さない=undo対象にはしないが、
+  // 保留中のundoは確定して「あとから消えて驚く」事故を防ぐ(Issue #14)
+  const handleUpdateTask = useCallback(
+    (t: Task) => {
+      commitPendingUndo();
+      upsert([t]);
+    },
+    [upsert, commitPendingUndo]
+  );
 
   // ---------- フィルタ・並び替え ----------
   /** 現在のモード(仕事/個人/すべて)で表示すべきタスクか。タスク自身の scope で判定 */
@@ -346,11 +407,14 @@ export default function App() {
           scope: defaultScope,
         })
       );
-      if (created.length > 0) upsert(created);
+      if (created.length > 0) {
+        pushUndo("一括登録");
+        upsert(created);
+      }
       setBulkAddOpen(false);
-      showToast(`${created.length}件を登録しました`);
+      showToast(`${created.length}件を登録しました`, created.length > 0);
     },
-    [defaultScope, upsert, showToast]
+    [defaultScope, upsert, showToast, pushUndo]
   );
 
   // JSONファイルからの一括インポート(Issue #12)。
@@ -393,7 +457,10 @@ export default function App() {
           }
           byId.set(t.id, t); // ファイル内に同じIDが複数あっても二重に数えない
         }
-        if (write.length > 0) upsert(write);
+        if (write.length > 0) {
+          pushUndo("インポート"); // トーストは出さないがCtrl+Zで戻せる
+          upsert(write);
+        }
         setImportResult({
           total: raw.length,
           added,
@@ -405,7 +472,7 @@ export default function App() {
         showToast("インポート失敗: JSONとして読み込めませんでした");
       }
     },
-    [tasks, upsert, showToast]
+    [tasks, upsert, showToast, pushUndo]
   );
 
   const openEditForm = useCallback((task: Task) => {
@@ -420,11 +487,12 @@ export default function App() {
 
   const doStart = useCallback(
     (task: Task, time: string) => {
+      pushUndo("開始");
       upsert([startTask(task, time)]);
       setStartTarget(null);
-      showToast(`▶ 開始: ${task.title} (${time})`);
+      showToast(`▶ 開始: ${task.title} (${time})`, true);
     },
-    [upsert, showToast]
+    [upsert, showToast, pushUndo]
   );
 
   // 終了も時刻入力ダイアログを開き、確定した時刻で終了する(Excel版 EndTask 踏襲)
@@ -434,42 +502,47 @@ export default function App() {
 
   const doEnd = useCallback(
     (task: Task, time: string) => {
+      pushUndo("終了");
       const { updated, next } = endTask(task, time);
       upsert(next ? [updated, next] : [updated]);
       setEndTarget(null);
       showToast(
         next
           ? `■ 完了: ${task.title} (${time}) → 次回 ${next.date} に生成しました`
-          : `■ 完了: ${task.title} (${time})`
+          : `■ 完了: ${task.title} (${time})`,
+        true
       );
     },
-    [upsert, showToast]
+    [upsert, showToast, pushUndo]
   );
 
   const handleInterruptConfirm = useCallback(
     (title: string | undefined, estimate: number) => {
       if (!interruptTarget) return;
+      pushUndo("中断");
       const { consumed, remainder, interrupt } = interruptTask(interruptTarget, title, estimate);
       upsert(interrupt ? [consumed, remainder, interrupt] : [consumed, remainder]);
       setInterruptTarget(null);
       showToast(
         interrupt
           ? `⚡ 中断し、割込み「${interrupt.title}」を開始しました`
-          : `⚡ 中断しました(残り ${formatMin(remainder.estimateMin) || "0m"})`
+          : `⚡ 中断しました(残り ${formatMin(remainder.estimateMin) || "0m"})`,
+        true
       );
     },
-    [interruptTarget, upsert, showToast]
+    [interruptTarget, upsert, showToast, pushUndo]
   );
 
   // タスクを複製(実行状態はリセットした新規タスク)。Issue #1
   const handleCopy = useCallback(
     (task: Task) => {
+      pushUndo("コピー");
       const copy = copyTask(task);
       upsert([copy]);
       setFocusedId(copy.id);
-      showToast(`コピーしました: ${task.title}`);
+      showToast(`コピーしました: ${task.title}`, true);
     },
-    [upsert, showToast]
+    [upsert, showToast, pushUndo]
   );
 
   // 定期予定を完了にせず次の日程へ延期(Issue #6)
@@ -488,11 +561,12 @@ export default function App() {
         showToast("開始済みのタスクは延期できません(中断は I キー)");
         return;
       }
+      pushUndo("延期");
       const moved = postponeTask(task);
       upsert([moved]);
-      showToast(`次の日程へ延期しました: ${moved.date}`);
+      showToast(`次の日程へ延期しました: ${moved.date}`, true);
     },
-    [upsert, showToast]
+    [upsert, showToast, pushUndo]
   );
 
   /**
@@ -503,17 +577,19 @@ export default function App() {
   const handleToggleWait = useCallback(
     (task: Task) => {
       if (task.actEnd) {
+        pushUndo("待ちタスク複製");
         const copy = createWaitCopy(task);
         upsert([copy]);
         setFocusedId(copy.id);
-        showToast(`待ちタスクとして複製: ${task.title}`);
+        showToast(`待ちタスクとして複製: ${task.title}`, true);
       } else {
+        pushUndo("待ち切替");
         const updated = toggleWaiting(task);
         upsert([updated]);
-        showToast(updated.waiting ? `待ちON: ${task.title}` : `待ちOFF: ${task.title}`);
+        showToast(updated.waiting ? `待ちON: ${task.title}` : `待ちOFF: ${task.title}`, true);
       }
     },
-    [upsert, showToast]
+    [upsert, showToast, pushUndo]
   );
 
   // クリップボード取込(Excel版 UnifiedInsertTask 踏襲)
@@ -602,7 +678,9 @@ export default function App() {
     const summary = await syncTasksToCalendar(targets, client, (taskId, eventId) =>
       idUpdates.push({ id: taskId, eventId })
     );
-    // 成功分だけ gcalEventId を書き戻す(失敗した件は未同期のまま=押し直しでリトライ)
+    // 成功分だけ gcalEventId を書き戻す(失敗した件は未同期のまま=押し直しでリトライ)。
+    // これは裏方の書き込み。保留中のundoは確定だけして、これ自体はundo対象にしない
+    commitPendingUndo();
     if (idUpdates.length > 0) {
       setTasks((prev) =>
         prev.map((t) => {
@@ -612,7 +690,7 @@ export default function App() {
       );
     }
     setCalSyncResult(summary);
-  }, [selectedIds, tasks, showToast]);
+  }, [selectedIds, tasks, showToast, commitPendingUndo]);
 
   const handleResetCalendarAuth = useCallback(() => {
     resetGcalAuth();
@@ -660,12 +738,15 @@ export default function App() {
       const targets = selectedIds
         .map((id) => byId.get(id))
         .filter((t): t is Task => !!t);
-      if (targets.length > 0) upsert(setSequentialStart(targets, firstStart));
+      if (targets.length > 0) {
+        pushUndo("連続時刻");
+        upsert(setSequentialStart(targets, firstStart));
+      }
       setSeqOpen(false);
       setSelectedIds([]);
-      showToast(`${targets.length}件に選択した順で開始予定時刻を設定しました`);
+      showToast(`${targets.length}件に選択した順で開始予定時刻を設定しました`, targets.length > 0);
     },
-    [tasks, selectedIds, upsert, showToast]
+    [tasks, selectedIds, upsert, showToast, pushUndo]
   );
 
   // ビュー切替。「今日」を選んだら選択日を今日に戻す
@@ -716,12 +797,15 @@ export default function App() {
           if (changes.scope !== undefined) patch.scope = changes.scope;
           return { ...t, ...patch, updatedAt: new Date().toISOString() };
         });
-      if (updated.length > 0) upsert(updated);
+      if (updated.length > 0) {
+        pushUndo("一括編集");
+        upsert(updated);
+      }
       setBulkOpen(false);
       setSelectedIds([]);
-      showToast(`${updated.length}件を一括更新しました`);
+      showToast(`${updated.length}件を一括更新しました`, updated.length > 0);
     },
-    [tasks, selectedIds, upsert, showToast]
+    [tasks, selectedIds, upsert, showToast, pushUndo]
   );
 
   // ---------- カーソル移動(↑↓キー) ----------
@@ -852,11 +936,12 @@ export default function App() {
   // ---------- カーソルタスクの日付を前後(h/l キー。Issue #7 / Excel NextDay・PreviousDay 相当)----------
   const shiftFocusedDate = useCallback(
     (task: Task, delta: number) => {
+      pushUndo("日付移動");
       const newDate = addToDate(task.date ?? todayStr(), "day", delta);
       upsert([{ ...task, date: newDate, updatedAt: new Date().toISOString() }]);
-      showToast(`${task.title || "(無題)"} → ${formatDateJa(newDate)}`);
+      showToast(`${task.title || "(無題)"} → ${formatDateJa(newDate)}`, true);
     },
-    [upsert, showToast]
+    [upsert, showToast, pushUndo]
   );
 
   // ---------- 範囲選択(Shift+クリック / Shift+↑↓。Issue #8)----------
@@ -929,6 +1014,12 @@ export default function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         openNewForm();
+        return;
+      }
+      // Ctrl/⌘+Z: 直前の操作を元に戻す(単段・自動確定。Issue #14)
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
+        e.preventDefault();
+        performUndo();
         return;
       }
       // Ctrl/⌘+Enter: カーソル位置のタスクの詳細編集を開く(列選択中でもセル編集を挟まず一発で)
@@ -1092,11 +1183,12 @@ export default function App() {
                   }
                 }
               }
+              pushUndo(`削除(${selectedIds.length}件)`);
               removeMany(selectedIds);
               setSelectedIds([]);
               setAnchorId(null);
               setFocusedId(nextFocus ? nextFocus.id : null);
-              showToast(`${selectedIds.length}件を削除しました`);
+              showToast(`${selectedIds.length}件を削除しました`, true);
             }
             break;
           }
@@ -1105,9 +1197,10 @@ export default function App() {
             // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
             const idx = visibleTasks.findIndex((t) => t.id === focused.id);
             const nextFocus = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
+            pushUndo("削除");
             remove(focused.id);
             setFocusedId(nextFocus ? nextFocus.id : null);
-            showToast("削除しました");
+            showToast("削除しました", true);
           }
           break;
       }
@@ -1149,6 +1242,8 @@ export default function App() {
     removeMany,
     showToast,
     cycleMode,
+    pushUndo,
+    performUndo,
   ]);
 
   // ---------- 描画 ----------
@@ -1259,18 +1354,20 @@ export default function App() {
           categories={categories}
           suggestCategory={(title) => suggestCategoryByTitle(tasks, title)}
           onSave={(t) => {
+            pushUndo(formIsNew ? "追加" : "更新");
             upsert([t]);
             setFormTask(null);
-            showToast(formIsNew ? `追加: ${t.title}` : `更新: ${t.title}`);
+            showToast(formIsNew ? `追加: ${t.title}` : `更新: ${t.title}`, true);
           }}
           onDelete={(id) => {
             // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
             const idx = visibleTasks.findIndex((t) => t.id === id);
             const nextFocus = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
+            pushUndo("削除");
             remove(id);
             setFocusedId(nextFocus ? nextFocus.id : null);
             setFormTask(null);
-            showToast("削除しました");
+            showToast("削除しました", true);
           }}
           onClose={() => setFormTask(null)}
         />
@@ -1346,10 +1443,19 @@ export default function App() {
         <ImportResultDialog result={importResult} onClose={() => setImportResult(null)} />
       )}
 
-      {/* トースト通知 */}
+      {/* トースト通知(undoできる操作は「元に戻す」ボタン付き。Issue #14) */}
       {toast && (
-        <div className="fixed bottom-4 left-1/2 z-50 -translate-x-1/2 rounded-full bg-gray-800 px-4 py-2 text-sm text-white shadow-lg">
-          {toast}
+        <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full bg-gray-800 px-4 py-2 text-sm text-white shadow-lg">
+          <span>{toast.text}</span>
+          {toast.undoable && (
+            <button
+              className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-white/25"
+              onClick={performUndo}
+              title="元に戻す(Ctrl+Z)"
+            >
+              ↩ 元に戻す
+            </button>
+          )}
         </div>
       )}
     </div>
