@@ -477,6 +477,15 @@ export default function App() {
         showToast("繰り返し設定のあるタスクだけ延期できます");
         return;
       }
+      // Issue #15: 延期できるのは未開始のみ。完了・開始済みは延期する必要がない
+      if (task.actEnd) {
+        showToast("完了したタスクは延期できません");
+        return;
+      }
+      if (task.actStart) {
+        showToast("開始済みのタスクは延期できません(中断は I キー)");
+        return;
+      }
       const moved = postponeTask(task);
       upsert([moved]);
       showToast(`次の日程へ延期しました: ${moved.date}`);
@@ -1037,11 +1046,10 @@ export default function App() {
           e.preventDefault();
           handleCopy(focused);
           break;
-        case "p": // 定期予定を次の日程へ延期
+        case "p": // 定期予定を次の日程へ延期(未開始のみ。判定・メッセージは handlePostpone)
           if (!focused) break;
           e.preventDefault();
-          if (focused.repeat) handlePostpone(focused);
-          else showToast("繰り返し設定のあるタスクだけ延期できます");
+          handlePostpone(focused);
           break;
         case "enter": // 表: カーソルのセルを編集。列未選択や表以外は詳細編集
           if (!focused) break;

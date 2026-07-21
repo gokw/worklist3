@@ -80,7 +80,8 @@ export default function TaskActions({
           </button>
         </>
       )}
-      {task.repeat && !done && (
+      {/* Issue #15: 延期は未開始のみ(実行中・完了では出さない) */}
+      {task.repeat && !running && !done && (
         <button
           className={`${base} ${
             compact

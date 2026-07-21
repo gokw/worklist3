@@ -295,7 +295,11 @@ export function createWaitCopy(task: Task): Task {
 
 // ---------- 複製 ----------
 
-/** タスクを複製する(実行状態はリセットした新規タスク)。Issue #1 */
+/**
+ * タスクを複製する(実行状態はリセットした新規タスク)。Issue #1
+ * Issue #13: 開始予定時刻(planStart)は引き継がない。コピーは別の時間に置くのが普通で、
+ * 同じ時刻に2件並ぶと連続時刻設定や予定ビューが乱れるため。見積(作業の長さ)は残す。
+ */
 export function copyTask(task: Task): Task {
   return createTask({
     title: task.title,
@@ -303,7 +307,6 @@ export function copyTask(task: Task): Task {
     category: task.category,
     importance: task.importance,
     date: task.date,
-    planStart: task.planStart,
     estimateMin: task.estimateMin,
     deadline: task.deadline,
     repeat: task.repeat,
