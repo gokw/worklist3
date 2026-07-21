@@ -7,6 +7,7 @@ import { DONE_FILTER_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
 import type { BackupState } from "../lib/backup";
 import { loadGcalConfig, saveGcalConfig } from "../lib/gcalClient";
+import { backupNeedsAttention } from "../lib/backup";
 
 /** ドロップダウン(その他)にまとめる期間 */
 const DROPDOWN_VIEWS: ViewMode[] = ["today", "everything", "custom"];
@@ -40,6 +41,12 @@ function useDismiss(open: boolean, onClose: () => void) {
     };
   }, [open, onClose]);
   return ref;
+}
+
+/** タイムスタンプ(ms)を HH:MM にする(スヌーズ期限の表示用) */
+function fmtClock(ts: number): string {
+  const d = new Date(ts);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
 /** タスク名フィルタの履歴(localStorage) */
@@ -114,6 +121,9 @@ interface Props {
   onReconnectBackupDir: () => void;
   onDisconnectBackupDir: () => void;
   onBackupNow: () => void;
+  /** ◯分だけバックアップ警告を止める(Issue #20) */
+  onSnoozeBackup: (minutes: number) => void;
+  onClearBackupSnooze: () => void;
   totals: { estimate: number; actual: number; remain: number };
 }
 
@@ -282,6 +292,26 @@ export default function Toolbar(p: Props) {
           >
             📅 カレンダー登録 ({p.selectedCount})
           </button>
+          {/* バックアップ異常の警告(Issue #20)。異常時だけ出す。押すと💾メニューへ。
+              スヌーズ中は控えめな「停止中」表示にする */}
+          {backupNeedsAttention(p.backup) &&
+            (Date.now() < p.backup.snoozedUntil ? (
+              <button
+                className="rounded border border-gray-300 bg-gray-50 px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-100"
+                onClick={() => setDataMenuOpen(true)}
+                title={`バックアップ警告を停止中(${fmtClock(p.backup.snoozedUntil)}まで)。押すと詳細`}
+              >
+                💤 バックアップ
+              </button>
+            ) : (
+              <button
+                className="rounded border border-amber-400 bg-amber-50 px-2 py-1.5 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+                onClick={() => setDataMenuOpen(true)}
+                title="自動バックアップが動いていません。押すと詳細と対処"
+              >
+                ⚠ バックアップ未実行
+              </button>
+            ))}
           <div className="relative" ref={dataMenuRef}>
           <button
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
@@ -372,6 +402,36 @@ export default function Toolbar(p: Props) {
                 <div className="px-3 pb-1 pt-1.5 text-[11px] font-semibold text-gray-400">
                   自動バックアップ
                 </div>
+
+                {/* Issue #20: 異常時の警告スヌーズ。押すと15/30/60分だけ黙る */}
+                {backupNeedsAttention(p.backup) &&
+                  (Date.now() < p.backup.snoozedUntil ? (
+                    <div className="mx-3 mb-2 rounded border border-gray-200 bg-gray-50 px-2 py-1.5 text-xs text-gray-600">
+                      💤 警告を停止中({fmtClock(p.backup.snoozedUntil)}まで)
+                      <button
+                        className="ml-2 text-blue-600 underline hover:text-blue-800"
+                        onClick={() => p.onClearBackupSnooze()}
+                      >
+                        今すぐ戻す
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mx-3 mb-2 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800">
+                      <span className="font-semibold">⚠ 自動バックアップが動いていません。</span>
+                      <div className="mt-1 flex items-center gap-1 text-gray-600">
+                        <span>しばらく黙らせる:</span>
+                        {[15, 30, 60].map((min) => (
+                          <button
+                            key={min}
+                            className="rounded border border-gray-300 bg-white px-1.5 py-0.5 hover:bg-gray-100"
+                            onClick={() => p.onSnoozeBackup(min)}
+                          >
+                            {min}分
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
 
                 {!p.backup.supported ? (
                   <p className="px-3 pb-2 text-xs text-gray-500">

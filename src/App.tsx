@@ -31,12 +31,14 @@ import {
   type BackupState,
   backupNow,
   chooseBackupDir,
+  clearBackupSnooze,
   disconnectBackupDir,
   getBackupState,
   notifyTasksChanged,
   reconnectBackupDir,
   restoreBackupDir,
   setBackupNotifier,
+  snoozeBackupWarning,
   subscribeBackup,
 } from "./lib/backup";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
@@ -1204,6 +1206,8 @@ export default function App() {
         onReconnectBackupDir={() => void reconnectBackupDir(tasks)}
         onDisconnectBackupDir={() => void disconnectBackupDir()}
         onBackupNow={() => void backupNow(tasks)}
+        onSnoozeBackup={snoozeBackupWarning}
+        onClearBackupSnooze={clearBackupSnooze}
         totals={totals}
       />
 
