@@ -89,6 +89,24 @@ const TITLE_COL = 6;
 const TITLE_MIN_DENSE = 180;
 const TITLE_MIN_NORMAL = 220;
 
+/**
+ * 繰り返しの視認性マーク(Issue #18)。null=繰り返しなし。
+ *   ・0日(何度も) … ♾️(繰り返しとは意味が違うルーティン。別アイコン)
+ *   ・引き継がない … 青の ⟳
+ *   ・時間引き継ぎ … 緑の ⟳(開始予定時刻を次回へ引き継ぐ)
+ */
+function repeatMark(task: Task): { glyph: string; className: string; title: string } | null {
+  if (!task.repeat) return null;
+  const label = repeatLabel(task);
+  const r = task.repeat;
+  if (r.unit === "day" && r.interval === 0) {
+    return { glyph: "♾️", className: "", title: label };
+  }
+  return r.copyPlanStart
+    ? { glyph: "⟳", className: "text-emerald-600", title: `${label}・開始時刻を引き継ぐ` }
+    : { glyph: "⟳", className: "text-blue-600", title: label };
+}
+
 function repeatLabel(task: Task): string {
   if (!task.repeat) return "";
   const r = task.repeat;
@@ -394,13 +412,24 @@ export default function TaskTable({
                   { options: ALL_IMPORTANCES.map((i) => ({ value: i, label: i })) }
                 )}
 
-                {/* 繰返(編集不可・詳細で)。ライトは🔁アイコン+ツールチップ */}
+                {/* 繰返(編集不可・詳細で)。Issue #18: 引き継ぎ有無で色、0日は別アイコン */}
                 {dense ? (
-                  <td className={`${td} text-center`} title={repeatLabel(t)}>
-                    {t.repeat ? "🔁" : ""}
+                  <td className={`${td} text-center`} title={repeatMark(t)?.title ?? ""}>
+                    {(() => {
+                      const m = repeatMark(t);
+                      return m ? (
+                        <span className={`text-sm font-bold ${m.className}`}>{m.glyph}</span>
+                      ) : (
+                        ""
+                      );
+                    })()}
                   </td>
                 ) : (
-                  <td className={`${td} text-xs text-gray-500`}>{repeatLabel(t)}</td>
+                  <td className={`${td} text-xs`} title={repeatMark(t)?.title ?? ""}>
+                    <span className={repeatMark(t)?.className ?? "text-gray-500"}>
+                      {repeatLabel(t)}
+                    </span>
+                  </td>
                 )}
 
                 {/* タスク名(インライン)。必ず1行に切り詰め、溢れはホバーで全文 */}
