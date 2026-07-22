@@ -161,7 +161,13 @@ export default function App() {
    * H/Lで日付を動かしている間の「見た目の並び固定」(Issue #14 追加)。
    * order = ずらす前の表示順のid列。窓が閉じるまでこの順で描画し、閉じたら整列＋中央寄せ。
    */
-  const [dateShift, setDateShift] = useState<{ taskId: string; order: string[] } | null>(null);
+  // H/L の日付移動セッション。key=窓の識別(単体はタスクID / 一括は "bulk")、
+  // order=ずらす前の並び(固定表示用)、focusId=開始時のカーソル(離れたら整列)。
+  const [dateShift, setDateShift] = useState<{
+    key: string;
+    order: string[];
+    focusId: string | null;
+  } | null>(null);
   const dateShiftTimer = useRef<number | undefined>(undefined);
 
   // 保存(タスクが変わるたびに localStorage へ)。
@@ -988,29 +994,50 @@ export default function App() {
     [visibleTasks, focusedId]
   );
 
-  // ---------- カーソルタスクの日付を前後(h/l キー。Issue #7 / Excel NextDay・PreviousDay 相当)----------
+  // ---------- 日付を前後(h/l キー。Issue #7 / Excel NextDay・PreviousDay 相当)----------
+  // 複数選択があれば選択タスクをまとめて移動する(Issue #23)。無ければカーソルの1件。
   const shiftFocusedDate = useCallback(
-    (task: Task, delta: number) => {
-      // 同じタスクを続けて動かしているときは、まとめて1つのundo・並びも固定のまま(連打対応)。
+    (delta: number) => {
+      const targets =
+        selectedIds.length > 0
+          ? visibleTasks.filter((t) => selectedIds.includes(t.id))
+          : visibleTasks.filter((t) => t.id === focusedId);
+      if (targets.length === 0) return;
+      const bulk = targets.length > 1;
+      const key = bulk ? "bulk" : targets[0].id;
+      // 同じ対象を続けて動かしているときは、まとめて1つのundo・並びも固定のまま(連打対応)。
       // 新規セッションのときだけスナップショットと「ずらす前の並び」を確保する。
-      const fresh = !dateShift || dateShift.taskId !== task.id;
+      const fresh = !dateShift || dateShift.key !== key;
       if (fresh) {
         pushUndo("日付移動", false); // 失効は下の dateShiftTimer が管理する
-        setDateShift({ taskId: task.id, order: visibleTasks.map((t) => t.id) });
+        setDateShift({ key, order: visibleTasks.map((t) => t.id), focusId: focusedId });
       }
-      const newDate = addToDate(task.date ?? todayStr(), "day", delta);
-      upsert([{ ...task, date: newDate, updatedAt: new Date().toISOString() }]);
-      showToast(`${task.title || "(無題)"} → ${formatDateJa(newDate)}`, true);
-      // 窓(=固定)の終了タイマ。押すたびに延長し、止まったら整列＋中央寄せ
+      const now = new Date().toISOString();
+      const moved = targets.map((t) => ({
+        ...t,
+        date: addToDate(t.date ?? todayStr(), "day", delta),
+        updatedAt: now,
+      }));
+      upsert(moved);
+      showToast(
+        bulk
+          ? `${moved.length}件を${delta > 0 ? "翌日" : "前日"}へ`
+          : `${moved[0].title || "(無題)"} → ${formatDateJa(moved[0].date as string)}`,
+        true
+      );
+      // 窓(=固定)の終了タイマ。押すたびに延長し、止まったら整列＋中央寄せ(カーソル位置へ)
       window.clearTimeout(dateShiftTimer.current);
-      dateShiftTimer.current = window.setTimeout(() => endDateShift(true, task.id), UNDO_WINDOW_MS);
+      dateShiftTimer.current = window.setTimeout(
+        () => endDateShift(true, focusedId ?? undefined),
+        UNDO_WINDOW_MS
+      );
     },
-    [dateShift, visibleTasks, upsert, showToast, pushUndo, endDateShift]
+    [dateShift, visibleTasks, focusedId, selectedIds, upsert, showToast, pushUndo, endDateShift]
   );
 
   // H/Lの固定中にカーソルが別タスクへ動いたら、整列してカーソルに追従する(中央寄せはしない)
   useEffect(() => {
-    if (dateShift && focusedId !== dateShift.taskId) endDateShift(false);
+    if (dateShift && focusedId !== dateShift.focusId) endDateShift(false);
   }, [focusedId, dateShift, endDateShift]);
 
   // ---------- 範囲選択(Shift+クリック / Shift+↑↓。Issue #8)----------
@@ -1179,15 +1206,15 @@ export default function App() {
           e.preventDefault();
           moveFocus(-5);
           break;
-        case "h": // カーソルタスクの日付を前日へ(Issue #7)
-          if (!focused) break;
+        case "h": // 日付を前日へ(複数選択中はまとめて。Issue #7 / #23)
+          if (!focused && selectedIds.length === 0) break;
           e.preventDefault();
-          shiftFocusedDate(focused, -1);
+          shiftFocusedDate(-1);
           break;
-        case "l": // カーソルタスクの日付を翌日へ
-          if (!focused) break;
+        case "l": // 日付を翌日へ(複数選択中はまとめて)
+          if (!focused && selectedIds.length === 0) break;
           e.preventDefault();
-          shiftFocusedDate(focused, 1);
+          shiftFocusedDate(1);
           break;
         case "s": // 開始/再開(Excel版 StartTask)
           if (!focused) break;
