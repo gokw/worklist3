@@ -452,6 +452,14 @@ export default function App() {
           category: r.category,
           estimateMin: r.estimateMin,
           scope: defaultScope,
+          // 旧worklist形式(Issue #22)で取り込んだ追加項目。無ければ createTask の既定値のまま
+          ...(r.planStart ? { planStart: r.planStart } : {}),
+          ...(r.actEnd ? { actEnd: r.actEnd } : {}),
+          ...(r.waiting ? { waiting: r.waiting } : {}),
+          ...(r.repeat ? { repeat: r.repeat } : {}),
+          ...(r.memos && r.memos.length > 0
+            ? { memos: [r.memos[0] ?? "", r.memos[1] ?? "", r.memos[2] ?? ""] }
+            : {}),
         })
       );
       if (created.length > 0) {
