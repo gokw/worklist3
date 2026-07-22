@@ -1147,6 +1147,16 @@ export default function App() {
           if (e.shiftKey) extendSelection(1); // Shift+↓: 範囲選択
           else moveFocus(1);
           break;
+        case "j": // 下の行へ(vim準拠。移動後はそのまま Ctrl+Enter で詳細を開ける。Issue #21)
+          e.preventDefault();
+          if (e.shiftKey) extendSelection(1);
+          else moveFocus(1);
+          break;
+        case "k": // 上の行へ(vim準拠)
+          e.preventDefault();
+          if (e.shiftKey) extendSelection(-1);
+          else moveFocus(-1);
+          break;
         case "arrowleft": // 表: 左の列へ(Excel風セル移動)Issue #5
           if (layout === "cards") break;
           e.preventDefault();
