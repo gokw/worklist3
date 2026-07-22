@@ -5,6 +5,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { parseBulkText, type ParsedRow } from "../lib/bulkParse";
 import { formatDateJa } from "../lib/date";
+import { REPEAT_UNIT_LABELS, type RepeatConfig } from "../types";
 
 interface Props {
   /** 日付を省略した行に使う既定日 */
@@ -16,11 +17,24 @@ interface Props {
 const PLACEHOLDER = `例(1行1件。タブ区切りやExcelからの貼り付けもOK):
 2026-07-15\t請求書を送る\t経理\t30
 7/16\t定例会議の準備
-牛乳を買う`;
+牛乳を買う
+
+もともとの worklist(day/st/rpt/contents…)をヘッダごと貼り付けてもOK`;
+
+/** 繰り返し設定を短いラベルにする(プレビュー用) */
+function repeatLabel(r: RepeatConfig): string {
+  const base = `毎${r.interval}${REPEAT_UNIT_LABELS[r.unit]}`;
+  return r.copyPlanStart ? `${base}⟳時刻` : base;
+}
 
 export default function BulkAddDialog({ defaultDate, onRegister, onClose }: Props) {
   const [text, setText] = useState("");
   const rows = useMemo(() => parseBulkText(text, defaultDate), [text, defaultDate]);
+  // 旧worklist形式(Issue #22)で取り込めた列があるときだけ、プレビューに追加列を出す
+  const hasDetail = useMemo(
+    () => rows.some((r) => r.planStart || r.repeat || r.waiting),
+    [rows]
+  );
 
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
@@ -42,7 +56,9 @@ export default function BulkAddDialog({ defaultDate, onRegister, onClose }: Prop
         <p className="mb-3 text-xs text-gray-500">
           1行1件で貼り付けてください。タブ区切りなら{" "}
           <span className="font-semibold">日付 → タイトル → カテゴリ → 見積(分)</span> の順。
-          日付を省略した行は <span className="font-semibold">{formatDateJa(defaultDate)}</span> になります。
+          もともとの worklist(day/st/rpt/contents…)をそのまま貼り付けても取り込めます。
+          日付を省略した行(や「日」だけの行)は{" "}
+          <span className="font-semibold">{formatDateJa(defaultDate)}</span> の年月に合わせます。
         </p>
 
         <textarea
@@ -71,6 +87,12 @@ export default function BulkAddDialog({ defaultDate, onRegister, onClose }: Prop
                     <th className="px-2 py-1 text-left text-xs font-semibold text-gray-600">タスク名</th>
                     <th className="px-2 py-1 text-left text-xs font-semibold text-gray-600">カテゴリ</th>
                     <th className="px-2 py-1 text-right text-xs font-semibold text-gray-600">見積</th>
+                    {hasDetail && (
+                      <>
+                        <th className="px-2 py-1 text-left text-xs font-semibold text-gray-600">予定</th>
+                        <th className="px-2 py-1 text-left text-xs font-semibold text-gray-600">繰り返し</th>
+                      </>
+                    )}
                   </tr>
                 </thead>
                 <tbody>
@@ -79,11 +101,24 @@ export default function BulkAddDialog({ defaultDate, onRegister, onClose }: Prop
                       <td className="whitespace-nowrap px-2 py-1 text-gray-700">
                         {formatDateJa(r.date)}
                       </td>
-                      <td className="px-2 py-1 text-gray-800">{r.title}</td>
+                      <td className="px-2 py-1 text-gray-800">
+                        {r.waiting && <span className="mr-1 text-amber-600" title="待ち">待</span>}
+                        {r.title}
+                      </td>
                       <td className="px-2 py-1 text-gray-500">{r.category}</td>
                       <td className="px-2 py-1 text-right text-gray-500">
                         {r.estimateMin || ""}
                       </td>
+                      {hasDetail && (
+                        <>
+                          <td className="whitespace-nowrap px-2 py-1 text-gray-500">
+                            {r.planStart ?? ""}
+                          </td>
+                          <td className="whitespace-nowrap px-2 py-1 text-gray-500">
+                            {r.repeat ? repeatLabel(r.repeat) : ""}
+                          </td>
+                        </>
+                      )}
                     </tr>
                   ))}
                 </tbody>
