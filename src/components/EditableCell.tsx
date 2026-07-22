@@ -37,6 +37,9 @@ interface Props {
   /** エディタ入力欄のクラス上書き(表ライトの高密度用) */
   editorClassName?: string;
   title?: string;
+  /** シングルクリック: このセルへカーソルを当てる(行選択のみ。編集はしない)。Issue #24 */
+  onSelectCell: () => void;
+  /** ダブルクリック: このセルの編集を開始する */
   onStartEdit: () => void;
   onCommit: (raw: string) => void;
   onFinish: (reason: FinishReason) => void;
@@ -62,6 +65,7 @@ export default function EditableCell({
   tdClassName,
   editorClassName,
   title,
+  onSelectCell,
   onStartEdit,
   onCommit,
   onFinish,
@@ -89,11 +93,16 @@ export default function EditableCell({
     return (
       <td
         data-field={dataField}
-        className={`${tdClassName} cursor-text hover:bg-blue-50 ${
+        className={`${tdClassName} cursor-default hover:bg-blue-50 ${
           focused ? "ring-2 ring-inset ring-blue-500" : ""
         }`}
-        title={title ?? "クリックで編集"}
+        title={title ?? "ダブルクリックで編集"}
+        // シングルクリックは行選択＋このセルへカーソル。編集はダブルクリック(Issue #24)
         onClick={(e) => {
+          e.stopPropagation();
+          onSelectCell();
+        }}
+        onDoubleClick={(e) => {
           e.stopPropagation();
           onStartEdit();
         }}
