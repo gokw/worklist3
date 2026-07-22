@@ -269,6 +269,7 @@ export default function TaskTable({
       renderEditor={extra?.renderEditor}
       tdClassName={extra?.tdClass ?? td}
       editorClassName={editorCls}
+      onSelectCell={() => onFocusCell(task.id, field)}
       onStartEdit={() => startEdit(task.id, field)}
       onCommit={(raw) => commit(task, field, raw)}
       onFinish={(reason) => finish(task.id, field, reason)}

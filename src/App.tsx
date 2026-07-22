@@ -1144,6 +1144,13 @@ export default function App() {
       const running = focused && !!focused.actStart && !focused.actEnd;
 
       switch (e.key.toLowerCase()) {
+        case "escape": // 複数選択を全解除(Issue #24)
+          if (selectedIds.length > 0) {
+            e.preventDefault();
+            clearSelection();
+            setAnchorId(null);
+          }
+          break;
         case "n":
           e.preventDefault();
           openNewForm();
