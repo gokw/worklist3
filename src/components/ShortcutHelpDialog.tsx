@@ -12,6 +12,7 @@ interface Props {
 /** [キー, 説明] の並び */
 const TASK_KEYS: [string, string][] = [
   ["↑ / ↓", "行(タスク)を移動"],
+  ["j / k", "行を移動(vim準拠。j=下 / k=上)"],
   ["← / →", "列(項目)を移動"],
   ["PageUp / PageDown", "5行ずつ移動"],
   ["Ctrl + ↑ / ↓", "前/次のカテゴリの先頭へ"],
