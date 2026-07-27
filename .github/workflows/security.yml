@@ -1,0 +1,50 @@
+name: security-check
+
+# セキュリティチェックを回すタイミング:
+#   - main への push と PR のたび(混入をその場で検知)
+#   - 毎週月曜 09:00 JST(= 00:00 UTC)の定期実行(新しく公表された脆弱性を拾う)
+#   - 手動実行(Actions画面のボタン)
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 0 * * 1"
+  workflow_dispatch:
+
+# 読み取りのみ。必要最小限の権限にしておく
+permissions:
+  contents: read
+
+jobs:
+  # ① 依存ライブラリの既知脆弱性チェック(npm audit)
+  npm-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - name: Install dependencies (lockfile 厳守)
+        run: npm ci
+      # High 以上の脆弱性があればここで失敗し、通知される。
+      # Moderate 以下は失敗させず、下の一覧で内容だけ確認できるようにする。
+      - name: npm audit (High 以上で失敗)
+        run: npm audit --audit-level=high
+      - name: npm audit (全件を一覧表示。ここでは失敗させない)
+        if: always()
+        run: npm audit || true
+
+  # ② 秘密情報(APIキー・トークン等)の混入チェック(gitleaks)
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # 履歴全体を対象にする
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
