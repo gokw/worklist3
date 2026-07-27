@@ -822,6 +822,7 @@ export default function App() {
   );
 
   const toggleSelect = useCallback((id: string) => {
+    setFocusedId(id); // 行カーソルも触った行へ(マウス⇄キーボード混在時のズレ防止。Issue #26)
     setAnchorId(id); // 範囲選択の基準
     setSelectedIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
@@ -970,6 +971,7 @@ export default function App() {
   // ---------- カーソル列移動(←→キー。Excel風セル移動)Issue #5 ----------
   const onFocusCell = useCallback((id: string, field: EditableField) => {
     setFocusedId(id);
+    setAnchorId(id); // 範囲選択の基準もカーソルに合わせる(マウス⇄キーボード混在時のズレ防止。Issue #26)
     setFocusedField(field);
   }, []);
 
@@ -1050,6 +1052,7 @@ export default function App() {
       if (ai === -1 || bi === -1) return;
       const [lo, hi] = ai <= bi ? [ai, bi] : [bi, ai];
       setSelectedIds(visibleTasks.slice(lo, hi + 1).map((t) => t.id));
+      setFocusedId(id); // カーソルはShift+クリックした行(範囲の端)へ。anchorは基準のまま。Issue #26
     },
     [anchorId, visibleTasks]
   );
@@ -1435,7 +1438,7 @@ export default function App() {
           focusedId={focusedId}
           focusedField={focusedField}
           onFocusCell={onFocusCell}
-          onFocusTask={setFocusedId}
+          onFocusTask={focusRow}
           editing={editingCell}
           onEditingChange={setEditingCell}
           {...actionHandlers}
