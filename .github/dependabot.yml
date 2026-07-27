@@ -1,0 +1,32 @@
+# Dependabot: 依存ライブラリの脆弱性検知と更新PRの自動作成
+# 詳細な運用方針は docs/security-check.md を参照
+version: 2
+updates:
+  # npm(package.json)の依存を毎週チェックし、更新があればPRを出す
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    # マイナー/パッチはまとめて1つのPRにして、確認の手間を減らす
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions 自体(ワークフローで使うアクション)も更新対象にする
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Asia/Tokyo"
+    labels:
+      - "dependencies"
