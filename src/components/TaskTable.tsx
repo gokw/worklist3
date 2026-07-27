@@ -354,6 +354,10 @@ export default function TaskTable({
                         e.preventDefault();
                         if (e.shiftKey) onRangeSelectTo(t.id);
                         else onToggleSelect(t.id);
+                        // マウスクリック時はフォーカスをチェックボックスに残さない。
+                        // 残すとwindowのショートカットがINPUTガードで無視される(Issue #26)。
+                        // e.detail>0 はマウス由来のクリック。キーボード操作(detail=0)は巻き込まない。
+                        if (e.detail > 0) e.currentTarget.blur();
                       }}
                       title="クリックで選択 / Shift+クリックで範囲選択"
                     />
