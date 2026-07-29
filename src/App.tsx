@@ -154,6 +154,12 @@ export default function App() {
   /** revealTask で案内する行。一覧に現れたらスクロールする */
   const pendingRevealId = useRef<string | null>(null);
   /**
+   * 完了・延期など「カーソル位置のタスクが一覧から消える操作」の後始末用(Issue #36 と同種)。
+   * 操作前に隣の行を控えておき、対象が実際に一覧から消えたら隣へカーソルを送る。
+   * (対象が表示に残るなら=同一IDのまま自動追従するので何もしない)
+   */
+  const pendingRefocus = useRef<{ leavingId: string; neighborId: string | null } | null>(null);
+  /**
    * 直前の操作のスナップショット(単段・自動確定のundo。Issue #14)。
    * 次の操作をすると確定(=消える)。窓(トースト表示中)だけ元に戻せる。
    */
@@ -428,6 +434,20 @@ export default function App() {
     });
   }, [visibleTasks]);
 
+  /**
+   * カーソル位置のタスクが消えるかもしれない操作の直前に呼ぶ(Issue #36 と同種)。
+   * いま見えている並びで隣の行を控えておく。実際に消えたかの判定と移動は下の useEffect が行う。
+   */
+  const armRefocusIfLeaves = useCallback(
+    (leavingId: string) => {
+      const idx = visibleTasks.findIndex((t) => t.id === leavingId);
+      if (idx < 0) return; // そもそも一覧にいない(=カーソル対象でない)なら何もしない
+      const neighbor = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
+      pendingRefocus.current = { leavingId, neighborId: neighbor ? neighbor.id : null };
+    },
+    [visibleTasks]
+  );
+
   const categories = useMemo(() => collectCategories(tasks), [tasks]);
 
   // 集計は現在表示中のタスク(ビュー・モード・絞込を反映)を対象にする
@@ -475,6 +495,11 @@ export default function App() {
       if (created.length > 0) {
         pushUndo("一括登録");
         upsert(created);
+        // 追加した先頭の行へカーソルを移し、行が現れたら画面内へスクロールする
+        // (単発の追加と動きを揃える。Issue #36 と同種)
+        setFocusedId(created[0].id);
+        setAnchorId(created[0].id);
+        pendingRevealId.current = created[0].id;
       }
       setBulkAddOpen(false);
       showToast(`${created.length}件を登録しました`, created.length > 0);
@@ -569,6 +594,8 @@ export default function App() {
     (task: Task, time: string) => {
       pushUndo("終了");
       const { updated, next } = endTask(task, time);
+      // 「残りに集中」等で完了行が隠れる場合に、次の残タスクへカーソルを送る(Issue #36 と同種)
+      armRefocusIfLeaves(task.id);
       upsert(next ? [updated, next] : [updated]);
       setEndTarget(null);
       showToast(
@@ -578,7 +605,7 @@ export default function App() {
         true
       );
     },
-    [upsert, showToast, pushUndo]
+    [upsert, showToast, pushUndo, armRefocusIfLeaves]
   );
 
   const handleInterruptConfirm = useCallback(
@@ -628,10 +655,12 @@ export default function App() {
       }
       pushUndo("延期");
       const moved = postponeTask(task);
+      // 延期先が今の一覧から外れる場合に、次の残タスクへカーソルを送る(Issue #36 と同種)
+      armRefocusIfLeaves(task.id);
       upsert([moved]);
       showToast(`次の日程へ延期しました: ${moved.date}`, true);
     },
-    [upsert, showToast, pushUndo]
+    [upsert, showToast, pushUndo, armRefocusIfLeaves]
   );
 
   /**
@@ -924,6 +953,22 @@ export default function App() {
     },
     [focusedField]
   );
+
+  // armRefocusIfLeaves の続き: 対象が一覧から消えていたら、控えておいた隣へカーソルを送る(Issue #36 と同種)。
+  useEffect(() => {
+    const p = pendingRefocus.current;
+    if (!p) return;
+    // 対象がまだ見えている(全て表示・期間内など)ならカーソルはそのままでよい
+    if (visibleTasks.some((t) => t.id === p.leavingId)) {
+      pendingRefocus.current = null;
+      return;
+    }
+    pendingRefocus.current = null;
+    // 消えたのがカーソル位置の行だったときだけ動かす(別行への操作でカーソルを奪わない)
+    if (focusedId !== p.leavingId) return;
+    if (p.neighborId) focusRow(p.neighborId);
+    else setFocusedId(null);
+  }, [visibleTasks, focusedId, focusRow]);
 
   // ---------- カテゴリの区切りへジャンプ(Ctrl+↑↓) ----------
   // 同じカテゴリの行が連続しているとき、次/前の「違うカテゴリの先頭行」へ一気に移動する。
