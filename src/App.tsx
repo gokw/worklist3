@@ -1162,6 +1162,30 @@ export default function App() {
     const handler = (e: KeyboardEvent) => {
       // 入力中・ダイアログ表示中は無効
       const tag = (e.target as HTMLElement)?.tagName;
+      // Esc: 絞り込み検索などの入力欄にフォーカスがあるとショートカットが効かない。
+      // Esc を押したら入力欄を抜けて一覧へ戻す(Issue #27)。
+      //  - モーダルは各自 Esc を持つので触らない
+      //  - セル編集の Esc は EditableCell が preventDefault 済み(defaultPrevented)なので巻き込まない
+      if (e.key === "Escape" && !e.defaultPrevented) {
+        const anyModal =
+          formTask ||
+          interruptTarget ||
+          startTarget ||
+          endTarget ||
+          seqOpen ||
+          bulkOpen ||
+          bulkAddOpen ||
+          importResult ||
+          calSyncResult ||
+          helpOpen;
+        if (!anyModal && (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT")) {
+          e.preventDefault();
+          (e.target as HTMLElement)?.blur();
+          // 行カーソルが未設定なら先頭へ(戻った直後からキーボード操作できるように)
+          if (focusedId == null && visibleTasks.length > 0) setFocusedId(visibleTasks[0].id);
+          return;
+        }
+      }
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       // ボタン上のEnter/Spaceはボタン自体の動作を優先(二重発火防止)
       if ((tag === "BUTTON" || tag === "A") && (e.key === "Enter" || e.key === " ")) return;
