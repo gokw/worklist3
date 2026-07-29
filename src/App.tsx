@@ -263,18 +263,7 @@ export default function App() {
     showToast(`元に戻しました: ${u.label}`);
   }, [commitPendingUndo, showToast]);
 
-  /**
-   * H/Lの並び固定を終了する(Issue #14)。commitPendingUndo が固定解除＋undo確定を行う。
-   * center=true(窓が閉じた)なら、整列後にそのタスクを画面中央へ寄せる。
-   * center=false(途中でカーソルが別行へ動いた)なら、整列だけしてカーソルに追従させる。
-   */
-  const endDateShift = useCallback(
-    (center: boolean, taskId?: string) => {
-      if (center && taskId) pendingRevealId.current = taskId;
-      commitPendingUndo();
-    },
-    [commitPendingUndo]
-  );
+  // endDateShift は visibleTasks 依存の armRefocusIfLeaves を使うため、その定義の後に置く(下方)。
 
   // バックアップ層との接続: 状態の購読・トーストの差し込み・保存先の復元(起動時1回)
   useEffect(() => {
@@ -385,7 +374,17 @@ export default function App() {
     // 窓が閉じたら dateShift が null に戻り、下の通常の並べ替えに切り替わる。
     if (dateShift) {
       const pos = new Map(dateShift.order.map((id, i) => [id, i] as const));
-      return [...list].sort(
+      // 固定中は、ずらす前に見えていた行を期間フィルタで落とさず残す(Issue #31)。
+      // 期間外へ動かしても消えないので、L/H の連打で同じタスクを何日も送れる。
+      // (日付移動は他の絞り込み条件(区分・カテゴリ・完了等)を変えないので、
+      //  固定前に見えていた=それらは今も満たす。復帰対象は id だけで判定してよい)
+      const byId = new Map(tasks.map((t) => [t.id, t] as const));
+      const merged = new Map(list.map((t) => [t.id, t] as const));
+      for (const id of dateShift.order) {
+        const t = byId.get(id);
+        if (t) merged.set(id, t);
+      }
+      return [...merged.values()].sort(
         (a, b) => (pos.get(a.id) ?? Infinity) - (pos.get(b.id) ?? Infinity)
       );
     }
@@ -446,6 +445,23 @@ export default function App() {
       pendingRefocus.current = { leavingId, neighborId: neighbor ? neighbor.id : null };
     },
     [visibleTasks]
+  );
+
+  /**
+   * H/Lの並び固定を終了する(Issue #14)。commitPendingUndo が固定解除＋undo確定を行う。
+   * center=true(窓が閉じた)なら、そのタスクを画面へ寄せる。ただし期間外へ動かして
+   * 一覧から消える場合は、隣の行へカーソルを送る(Issue #31)。
+   * center=false(途中でカーソルが別行へ動いた)なら、整列だけしてカーソルに追従させる。
+   */
+  const endDateShift = useCallback(
+    (center: boolean, taskId?: string) => {
+      if (center && taskId) {
+        pendingRevealId.current = taskId; // まだ見えていればスクロールで寄せる
+        armRefocusIfLeaves(taskId); // 期間外に出て消えたら隣へカーソルを送る(Issue #31)
+      }
+      commitPendingUndo();
+    },
+    [commitPendingUndo, armRefocusIfLeaves]
   );
 
   const categories = useMemo(() => collectCategories(tasks), [tasks]);
