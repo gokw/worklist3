@@ -103,6 +103,8 @@ interface Props {
   onBulkEdit: () => void;
   /** 選択タスクをGoogleカレンダーへ登録/更新 */
   onSyncCalendar: () => void;
+  /** カレンダー登録の実行中(連打・二重登録の防止でボタンを無効化する。Issue #29) */
+  syncingCalendar: boolean;
   /** カレンダー連携をリセット(トークン破棄) */
   onResetCalendarAuth: () => void;
   onSelectAllVisible: () => void;
@@ -286,11 +288,12 @@ export default function Toolbar(p: Props) {
           </button>
           <button
             className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
-            disabled={p.selectedCount === 0}
+            // 登録中は無効化して連打による二重登録を防ぐ(Issue #29)
+            disabled={p.selectedCount === 0 || p.syncingCalendar}
             onClick={p.onSyncCalendar}
             title="選択した予定(開始時刻あり)をGoogleカレンダーへ登録/更新。時刻なしはスキップ"
           >
-            📅 カレンダー登録 ({p.selectedCount})
+            {p.syncingCalendar ? "📅 登録中…" : `📅 カレンダー登録 (${p.selectedCount})`}
           </button>
           {/* バックアップ異常の警告(Issue #20)。異常時だけ出す。押すと💾メニューへ。
               スヌーズ中は控えめな「停止中」表示にする */}

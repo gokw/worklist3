@@ -139,6 +139,10 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false);
   /** カレンダー登録の結果 */
   const [calSyncResult, setCalSyncResult] = useState<SyncSummary | null>(null);
+  /** カレンダー登録の実行中フラグ(連打による二重登録を防ぐ。Issue #29) */
+  const [syncingCalendar, setSyncingCalendar] = useState(false);
+  /** state更新を待たずに二重起動を弾くための即時ガード(Issue #29) */
+  const syncingCalendarRef = useRef(false);
   /** トースト。undoable=true のとき「元に戻す」ボタンを出す(Issue #14) */
   const [toast, setToast] = useState<{ text: string; undoable: boolean } | null>(null);
   const [backupState, setBackupState] = useState<BackupState>(getBackupState);
@@ -715,6 +719,10 @@ export default function App() {
    * 結果はダイアログで件数報告する。予定でないもの(時刻なし)は黙ってスキップ。
    */
   const handleSyncCalendar = useCallback(async () => {
+    // 連打・二重起動をここで弾く(ボタンのdisabledより前の最終防衛線。Issue #29)。
+    // state更新は非同期なので、同期的に判定できる ref を真偽の基準にする。
+    if (syncingCalendarRef.current) return;
+
     const { clientId, calendarId } = loadGcalConfig();
     if (!clientId || !calendarId) {
       showToast("Client ID / Calendar ID を 💾 メニューで設定してください");
@@ -725,32 +733,39 @@ export default function App() {
       .filter((t): t is Task => !!t);
     if (targets.length === 0) return;
 
-    // 初回のみ同意画面。以降はセッションがあれば画面なしで取得(ポップアップブロック回避のため
-    // ボタン押下の同期的な流れの中で呼ぶ)
+    syncingCalendarRef.current = true;
+    setSyncingCalendar(true);
     try {
-      await acquireToken(clientId);
-    } catch (e) {
-      showToast(`カレンダー連携を中止しました: ${e instanceof Error ? e.message : ""}`);
-      return;
-    }
+      // 初回のみ同意画面。以降はセッションがあれば画面なしで取得(ポップアップブロック回避のため
+      // ボタン押下の同期的な流れの中で呼ぶ)
+      try {
+        await acquireToken(clientId);
+      } catch (e) {
+        showToast(`カレンダー連携を中止しました: ${e instanceof Error ? e.message : ""}`);
+        return;
+      }
 
-    const client = createGoogleCalendarClient(clientId, calendarId);
-    const idUpdates: { id: string; eventId: string }[] = [];
-    const summary = await syncTasksToCalendar(targets, client, (taskId, eventId) =>
-      idUpdates.push({ id: taskId, eventId })
-    );
-    // 成功分だけ gcalEventId を書き戻す(失敗した件は未同期のまま=押し直しでリトライ)。
-    // これは裏方の書き込み。保留中のundoは確定だけして、これ自体はundo対象にしない
-    commitPendingUndo();
-    if (idUpdates.length > 0) {
-      setTasks((prev) =>
-        prev.map((t) => {
-          const u = idUpdates.find((x) => x.id === t.id);
-          return u ? { ...t, gcalEventId: u.eventId } : t;
-        })
+      const client = createGoogleCalendarClient(clientId, calendarId);
+      const idUpdates: { id: string; eventId: string }[] = [];
+      const summary = await syncTasksToCalendar(targets, client, (taskId, eventId) =>
+        idUpdates.push({ id: taskId, eventId })
       );
+      // 成功分だけ gcalEventId を書き戻す(失敗した件は未同期のまま=押し直しでリトライ)。
+      // これは裏方の書き込み。保留中のundoは確定だけして、これ自体はundo対象にしない
+      commitPendingUndo();
+      if (idUpdates.length > 0) {
+        setTasks((prev) =>
+          prev.map((t) => {
+            const u = idUpdates.find((x) => x.id === t.id);
+            return u ? { ...t, gcalEventId: u.eventId } : t;
+          })
+        );
+      }
+      setCalSyncResult(summary);
+    } finally {
+      syncingCalendarRef.current = false;
+      setSyncingCalendar(false);
     }
-    setCalSyncResult(summary);
   }, [selectedIds, tasks, showToast, commitPendingUndo]);
 
   const handleResetCalendarAuth = useCallback(() => {
@@ -1406,6 +1421,7 @@ export default function App() {
         onSequentialStart={handleSequentialStart}
         onBulkEdit={() => selectedIds.length > 0 && setBulkOpen(true)}
         onSyncCalendar={handleSyncCalendar}
+        syncingCalendar={syncingCalendar}
         onResetCalendarAuth={handleResetCalendarAuth}
         onSelectAllVisible={selectAllVisible}
         onClearSelection={clearSelection}
@@ -1475,6 +1491,9 @@ export default function App() {
             pushUndo(formIsNew ? "追加" : "更新");
             upsert([t]);
             setFormTask(null);
+            // 追加・更新した行へカーソルを移す(キーボードの日付変更時と同じく、
+            // 操作した行がそのまま次のキー操作の起点になるように。Issue #36)
+            focusRow(t.id);
             showToast(formIsNew ? `追加: ${t.title}` : `更新: ${t.title}`, true);
           }}
           onDelete={(id) => {
