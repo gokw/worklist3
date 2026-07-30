@@ -7,11 +7,13 @@ import {
   addToDate,
   hhmmToMin,
   minToHHMM,
-  nextWeekdayAfter,
+  monthlyNominalDate,
+  nextBusinessWeekday,
   nowHHMM,
   parseDateStr,
   rollToBusinessDay,
   todayStr,
+  yearlyNominalDate,
 } from "./date";
 
 /**
@@ -146,6 +148,26 @@ export function endTask(
   return { updated, next };
 }
 
+/**
+ * 繰り返しの「次回日」を、休日回避まで含めて算出する(#30)。
+ *   - 曜日指定の週: その曜日群の次の該当日。土日祝ならさらに次へ(同曜日群を維持)。
+ *   - 固定日(毎月X日 / 毎年X月X日): 名目日から算出し、土日祝なら前営業日へ。
+ *   - それ以外(N日ごと / 単純な月・年後): 現状どおり単純加算(休日回避しない)。
+ */
+export function computeRepeatNextDate(repeat: RepeatConfig, baseDate: string): string {
+  const { unit, interval, weekdays, dayOfMonth, month } = repeat;
+  if (unit === "week" && weekdays && weekdays.length > 0) {
+    return nextBusinessWeekday(baseDate, weekdays);
+  }
+  if (unit === "month" && dayOfMonth) {
+    return rollToBusinessDay(monthlyNominalDate(baseDate, interval, dayOfMonth), -1);
+  }
+  if (unit === "year" && month && dayOfMonth) {
+    return rollToBusinessDay(yearlyNominalDate(baseDate, interval, month, dayOfMonth), -1);
+  }
+  return addToDate(baseDate, unit, interval);
+}
+
 /** 繰り返し設定から次回タスクを生成する */
 export function generateNextOccurrence(task: Task): Task {
   const repeat = task.repeat as RepeatConfig;
@@ -153,12 +175,7 @@ export function generateNextOccurrence(task: Task): Task {
   const baseDate =
     repeat.mode === "afterComplete" ? todayStr() : task.date ?? todayStr();
 
-  let nextDate: string;
-  if (repeat.unit === "week" && repeat.weekdays && repeat.weekdays.length > 0) {
-    nextDate = nextWeekdayAfter(baseDate, repeat.weekdays);
-  } else {
-    nextDate = addToDate(baseDate, repeat.unit, repeat.interval);
-  }
+  const nextDate = computeRepeatNextDate(repeat, baseDate);
 
   return createTask({
     title: task.title,
@@ -189,15 +206,11 @@ export function generateNextOccurrence(task: Task): Task {
 export function postponeTask(task: Task): Task {
   const base = task.date ?? todayStr();
   const r = task.repeat;
-  let nextDate: string;
-  if (!r) {
-    // 繰り返しなし: 翌日にしてから、休日なら翌営業日へ(#37。金→月)
-    nextDate = rollToBusinessDay(addToDate(base, "day", 1), 1);
-  } else if (r.unit === "week" && r.weekdays && r.weekdays.length > 0) {
-    nextDate = nextWeekdayAfter(base, r.weekdays);
-  } else {
-    nextDate = addToDate(base, r.unit, r.interval);
-  }
+  // 繰り返しなし: 翌日にしてから、休日なら翌営業日へ(#37。金→月)
+  // 繰り返しあり: 次回日を休日回避込みで算出(固定日=前営業日 等。#30)
+  const nextDate = r
+    ? computeRepeatNextDate(r, base)
+    : rollToBusinessDay(addToDate(base, "day", 1), 1);
   // 期限は移動した日数分だけ一緒にずらす
   const shiftDays = Math.round(
     (parseDateStr(nextDate).getTime() - parseDateStr(base).getTime()) / 86400000

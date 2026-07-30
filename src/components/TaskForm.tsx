@@ -277,7 +277,8 @@ export default function TaskForm({
                     const unit = e.target.value as RepeatConfig["unit"];
                     // 日以外に切り替えたら0は無効なので最低1に引き上げる
                     const interval = unit === "day" ? repeat.interval : Math.max(1, repeat.interval);
-                    setRepeat({ ...repeat, unit, interval });
+                    // 単位ごとに意味が変わるので固定日の指定はリセットする
+                    setRepeat({ ...repeat, unit, interval, dayOfMonth: undefined, month: undefined });
                   }}
                 >
                   {(Object.keys(REPEAT_UNIT_LABELS) as RepeatConfig["unit"][]).map((u) => (
@@ -312,6 +313,80 @@ export default function TaskForm({
                       {label}
                     </button>
                   ))}
+                </div>
+              )}
+              {/* 毎月X日(固定日)。空なら基準日の日を維持。土日祝は前営業日へ(#30) */}
+              {repeat.unit === "month" && (
+                <div className="flex flex-wrap items-center gap-1 text-xs text-gray-600">
+                  <span className="mr-1">毎月</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    placeholder="例 25"
+                    className="w-16 rounded border border-gray-300 px-2 py-1"
+                    value={repeat.dayOfMonth ?? ""}
+                    onChange={(e) =>
+                      setRepeat({
+                        ...repeat,
+                        dayOfMonth:
+                          e.target.value === ""
+                            ? undefined
+                            : Math.min(31, Math.max(1, Number(e.target.value))),
+                      })
+                    }
+                  />
+                  <span>日</span>
+                  <span className="ml-1 text-gray-400">
+                    {repeat.dayOfMonth != null ? "土日祝は前営業日へ" : "空=基準日の日を維持"}
+                  </span>
+                </div>
+              )}
+              {/* 毎年X月X日(固定日)。月・日の両方を入れると有効。土日祝は前営業日へ(#30) */}
+              {repeat.unit === "year" && (
+                <div className="flex flex-wrap items-center gap-1 text-xs text-gray-600">
+                  <span className="mr-1">毎年</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={12}
+                    placeholder="月"
+                    className="w-14 rounded border border-gray-300 px-2 py-1"
+                    value={repeat.month ?? ""}
+                    onChange={(e) =>
+                      setRepeat({
+                        ...repeat,
+                        month:
+                          e.target.value === ""
+                            ? undefined
+                            : Math.min(12, Math.max(1, Number(e.target.value))),
+                      })
+                    }
+                  />
+                  <span>月</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={31}
+                    placeholder="日"
+                    className="w-14 rounded border border-gray-300 px-2 py-1"
+                    value={repeat.dayOfMonth ?? ""}
+                    onChange={(e) =>
+                      setRepeat({
+                        ...repeat,
+                        dayOfMonth:
+                          e.target.value === ""
+                            ? undefined
+                            : Math.min(31, Math.max(1, Number(e.target.value))),
+                      })
+                    }
+                  />
+                  <span>日</span>
+                  <span className="ml-1 text-gray-400">
+                    {repeat.month != null && repeat.dayOfMonth != null
+                      ? "土日祝は前営業日へ"
+                      : "月・日を両方入れると有効"}
+                  </span>
                 </div>
               )}
               <label className="flex items-center gap-2 text-xs text-gray-600">

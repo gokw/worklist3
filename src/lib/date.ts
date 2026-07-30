@@ -158,6 +158,76 @@ export function nextWeekdayAfter(dateStr: string, weekdays: number[]): string {
   return toDateStr(d);
 }
 
+/**
+ * 指定曜日群の「次の該当日」。ただし土日祝ならさらに次の該当日へ進める(#30)。
+ * 単一曜日(例: 木)なら祝日のとき翌週の同曜日に、複数曜日ならその群の次の営業該当日に。
+ */
+export function nextBusinessWeekday(dateStr: string, weekdays: number[]): string {
+  let d = nextWeekdayAfter(dateStr, weekdays);
+  for (let i = 0; i < 10; i++) {
+    if (isBusinessDay(d)) return d;
+    d = nextWeekdayAfter(d, weekdays);
+  }
+  return d; // フォールバック(通常ここには来ない)
+}
+
+// ---------- 固定日(毎月X日 / 毎年X月X日)の名目日計算。#30 ----------
+
+/** その年月(month0 = 0〜11)の日数 */
+export function daysInMonth(year: number, month0: number): number {
+  return new Date(year, month0 + 1, 0).getDate();
+}
+
+/** base 以上で最初に「その月の dayOfMonth 日(末日クランプ)」になる日 = 名目の当月 */
+function dayOfMonthOnOrAfter(base: string, dayOfMonth: number): Date {
+  const b = parseDateStr(base);
+  for (let i = 0; i <= 31; i++) {
+    const c = new Date(b.getFullYear(), b.getMonth(), b.getDate() + i);
+    const eff = Math.min(dayOfMonth, daysInMonth(c.getFullYear(), c.getMonth()));
+    if (c.getDate() === eff) return c;
+  }
+  return b;
+}
+
+/**
+ * 毎月 dayOfMonth 日の、interval ヶ月後の名目日(丸め前)。
+ * 実日付(丸め済みのことがある)ではなく名目日から数えるのでドリフトしない(#30 セクションE)。
+ */
+export function monthlyNominalDate(base: string, interval: number, dayOfMonth: number): string {
+  const cur = dayOfMonthOnOrAfter(base, dayOfMonth);
+  const totalMonth = cur.getMonth() + interval;
+  const y = cur.getFullYear() + Math.floor(totalMonth / 12);
+  const m0 = ((totalMonth % 12) + 12) % 12;
+  const day = Math.min(dayOfMonth, daysInMonth(y, m0));
+  return toDateStr(new Date(y, m0, day));
+}
+
+/** base 以上で最初に (month 月, dayOfMonth 日) になる日 = 名目の当年 */
+function monthDayOnOrAfter(base: string, month: number, dayOfMonth: number): Date {
+  const b = parseDateStr(base);
+  const m0 = month - 1;
+  for (let y = b.getFullYear(); y <= b.getFullYear() + 1; y++) {
+    const day = Math.min(dayOfMonth, daysInMonth(y, m0));
+    const cand = new Date(y, m0, day);
+    if (toDateStr(cand) >= base) return cand;
+  }
+  return b;
+}
+
+/** 毎年 month 月 dayOfMonth 日の、interval 年後の名目日(丸め前) */
+export function yearlyNominalDate(
+  base: string,
+  interval: number,
+  month: number,
+  dayOfMonth: number
+): string {
+  const cur = monthDayOnOrAfter(base, month, dayOfMonth);
+  const y = cur.getFullYear() + interval;
+  const m0 = month - 1;
+  const day = Math.min(dayOfMonth, daysInMonth(y, m0));
+  return toDateStr(new Date(y, m0, day));
+}
+
 /** YYYY-MM-DD を「M/D(曜)」形式で表示 */
 export function formatDateJa(dateStr: string): string {
   const d = parseDateStr(dateStr);

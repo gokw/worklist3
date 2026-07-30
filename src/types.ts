@@ -29,6 +29,15 @@ export interface RepeatConfig {
   interval: number;
   /** 毎週◯曜日(0=日〜6=土)。unit==="week" のときのみ有効。空なら単純なN週間後 */
   weekdays?: number[];
+  /**
+   * 毎月◯日 / 毎年◯月◯日 の「日」(1〜31)。unit==="month"/"year" のとき有効。
+   * 指定があれば固定日として扱い、次回日が土日祝なら前営業日へ丸める(#30)。
+   * 末日を超える指定(2月の31日など)はその月の末日にクランプ。
+   * 空なら従来どおり「基準日の日を維持して N か月/年後」。
+   */
+  dayOfMonth?: number;
+  /** 毎年◯月(1〜12)。unit==="year" のとき dayOfMonth と併用(#30)。 */
+  month?: number;
   /** Excel版 R=開始予定時刻を次回にコピーする / r=しない */
   copyPlanStart: boolean;
 }
