@@ -143,8 +143,11 @@ export default function App() {
   const [syncingCalendar, setSyncingCalendar] = useState(false);
   /** state更新を待たずに二重起動を弾くための即時ガード(Issue #29) */
   const syncingCalendarRef = useRef(false);
-  /** トースト。undoable=true のとき「元に戻す」ボタンを出す(Issue #14) */
-  const [toast, setToast] = useState<{ text: string; undoable: boolean } | null>(null);
+  /**
+   * トースト。action で右側のボタン(とキーボード操作)を出し分ける(Issue #14 / #39)。
+   *   "undo" … 「↩ 元に戻す」(Ctrl+Z)  "redo" … 「↪ やり直す」(Ctrl+Y)  null … ボタンなし
+   */
+  const [toast, setToast] = useState<{ text: string; action: "undo" | "redo" | null } | null>(null);
   const [backupState, setBackupState] = useState<BackupState>(getBackupState);
   const toastTimer = useRef<number | undefined>(undefined);
   /** 起動時1回だけ走る副作用から最新のタスクを見るための控え */
@@ -164,6 +167,13 @@ export default function App() {
    * 次の操作をすると確定(=消える)。窓(トースト表示中)だけ元に戻せる。
    */
   const pendingUndo = useRef<{ tasks: Task[]; focusedId: string | null; label: string } | null>(
+    null
+  );
+  /**
+   * やり直し(redo)用の控え。Ctrl+Z で戻した「操作後」の状態をここに保持し、
+   * Ctrl+Y で復元する。窓が閉じる/次の操作でクリア(Issue #39)。
+   */
+  const pendingRedo = useRef<{ tasks: Task[]; focusedId: string | null; label: string } | null>(
     null
   );
   const undoTimer = useRef<number | undefined>(undefined);
@@ -212,12 +222,19 @@ export default function App() {
 
   /** undoできる操作のトーストは、元に戻せる窓(UNDO_WINDOW_MS)と同じ長さ出す */
   const showToast = useCallback((msg: string, undoable = false) => {
-    setToast({ text: msg, undoable });
+    setToast({ text: msg, action: undoable ? "undo" : null });
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(
       () => setToast(null),
       undoable ? UNDO_WINDOW_MS : 3000
     );
+  }, []);
+
+  /** undo/redo のトーストを出し、表示中の窓を延長する(Ctrl+Z/Y で行き来できる間だけ出す) */
+  const showUndoToast = useCallback((text: string, action: "undo" | "redo") => {
+    setToast({ text, action });
+    window.clearTimeout(toastTimer.current);
+    toastTimer.current = window.setTimeout(() => setToast(null), UNDO_WINDOW_MS);
   }, []);
 
   // ---------- undo(単段・自動確定)。Issue #14 ----------
@@ -227,10 +244,20 @@ export default function App() {
    */
   const commitPendingUndo = useCallback(() => {
     pendingUndo.current = null;
+    pendingRedo.current = null; // 次の操作をしたら「やり直し」も無効(#39)
     window.clearTimeout(undoTimer.current);
     window.clearTimeout(dateShiftTimer.current);
     setDateShift(null);
-    setToast((prev) => (prev?.undoable ? null : prev));
+    setToast((prev) => (prev?.action ? null : prev));
+  }, []);
+
+  /** undo/redo の窓(Ctrl+Z↔Y で行き来できる時間)を張り直す。切れたら両スナップショットを破棄 */
+  const armUndoWindow = useCallback(() => {
+    window.clearTimeout(undoTimer.current);
+    undoTimer.current = window.setTimeout(() => {
+      pendingUndo.current = null;
+      pendingRedo.current = null;
+    }, UNDO_WINDOW_MS);
   }, []);
 
   /**
@@ -241,27 +268,54 @@ export default function App() {
     (label: string, autoExpire = true) => {
       commitPendingUndo();
       pendingUndo.current = { tasks: tasksRef.current, focusedId: focusedIdRef.current, label };
-      if (autoExpire) {
-        undoTimer.current = window.setTimeout(() => {
-          pendingUndo.current = null;
-        }, UNDO_WINDOW_MS);
-      }
+      if (autoExpire) armUndoWindow();
     },
-    [commitPendingUndo]
+    [commitPendingUndo, armUndoWindow]
   );
 
+  /** H/Lの並び固定だけ畳む(undo/redoスナップショットは保持したいので commit は使わない) */
+  const collapseDateShift = useCallback(() => {
+    window.clearTimeout(dateShiftTimer.current);
+    setDateShift(null);
+  }, []);
+
+  // Ctrl+Z: 操作前へ戻す。戻す直前の状態(操作後)は Ctrl+Y 用に控える(Issue #39)
   const performUndo = useCallback(() => {
     const u = pendingUndo.current;
     if (!u) {
       showToast("元に戻せる操作がありません");
       return;
     }
-    commitPendingUndo();
+    // 「操作後」の状態をやり直し用に控える(初回のみ。以降のトグルでは上書きしない)
+    if (!pendingRedo.current) {
+      pendingRedo.current = {
+        tasks: tasksRef.current,
+        focusedId: focusedIdRef.current,
+        label: u.label,
+      };
+    }
+    collapseDateShift();
     setTasks(u.tasks);
     setFocusedId(u.focusedId);
     setAnchorId(u.focusedId);
-    showToast(`元に戻しました: ${u.label}`);
-  }, [commitPendingUndo, showToast]);
+    armUndoWindow();
+    showUndoToast(`元に戻しました: ${u.label}`, "redo");
+  }, [showToast, showUndoToast, collapseDateShift, armUndoWindow]);
+
+  // Ctrl+Y: 直前の Ctrl+Z を取り消して操作後の状態へ戻す(やり直し。Issue #39)
+  const performRedo = useCallback(() => {
+    const r = pendingRedo.current;
+    if (!r) {
+      showToast("やり直す操作がありません");
+      return;
+    }
+    collapseDateShift();
+    setTasks(r.tasks);
+    setFocusedId(r.focusedId);
+    setAnchorId(r.focusedId);
+    armUndoWindow();
+    showUndoToast(`やり直しました: ${r.label}`, "undo");
+  }, [showToast, showUndoToast, collapseDateShift, armUndoWindow]);
 
   // endDateShift は visibleTasks 依存の armRefocusIfLeaves を使うため、その定義の後に置く(下方)。
 
@@ -1228,6 +1282,15 @@ export default function App() {
         performUndo();
         return;
       }
+      // Ctrl/⌘+Y(または Ctrl/⌘+Shift+Z): 直前の Ctrl+Z を取り消してやり直す(Issue #39)
+      if (
+        (e.ctrlKey || e.metaKey) &&
+        (e.key.toLowerCase() === "y" || (e.shiftKey && e.key.toLowerCase() === "z"))
+      ) {
+        e.preventDefault();
+        performRedo();
+        return;
+      }
       // Ctrl/⌘+Enter: カーソル位置のタスクの詳細編集を開く(列選択中でもセル編集を挟まず一発で)
       if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
         e.preventDefault();
@@ -1467,6 +1530,7 @@ export default function App() {
     cycleMode,
     pushUndo,
     performUndo,
+    performRedo,
   ]);
 
   // ---------- 描画 ----------
@@ -1672,17 +1736,26 @@ export default function App() {
         <ImportResultDialog result={importResult} onClose={() => setImportResult(null)} />
       )}
 
-      {/* トースト通知(undoできる操作は「元に戻す」ボタン付き。Issue #14) */}
+      {/* トースト通知。undo/redo は Ctrl+Z / Ctrl+Y でも操作できる(Issue #14 / #39) */}
       {toast && (
         <div className="fixed bottom-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full bg-gray-800 px-4 py-2 text-sm text-white shadow-lg">
           <span>{toast.text}</span>
-          {toast.undoable && (
+          {toast.action === "undo" && (
             <button
               className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-white/25"
               onClick={performUndo}
               title="元に戻す(Ctrl+Z)"
             >
               ↩ 元に戻す
+            </button>
+          )}
+          {toast.action === "redo" && (
+            <button
+              className="rounded-full bg-white/15 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-white/25"
+              onClick={performRedo}
+              title="やり直す(Ctrl+Y)"
+            >
+              ↪ やり直す
             </button>
           )}
         </div>
