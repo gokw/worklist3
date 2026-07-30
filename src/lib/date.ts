@@ -1,6 +1,7 @@
 // ==============================================================
 // 日付・時刻ユーティリティ
 // ==============================================================
+import { HOLIDAY_SET } from "./holidays";
 
 /** 今日の日付を YYYY-MM-DD で返す */
 export function todayStr(): string {
@@ -112,6 +113,39 @@ export function addToDate(
       break;
   }
   return toDateStr(d);
+}
+
+// ---------- 営業日(土日祝の回避)。#37 / #30 ----------
+
+/** 土曜(6)・日曜(0)か */
+export function isWeekend(dateStr: string): boolean {
+  const day = parseDateStr(dateStr).getDay();
+  return day === 0 || day === 6;
+}
+
+/** 内蔵リストの祝日か(収録範囲外の年は常に false = 祝日なし扱い) */
+export function isHoliday(dateStr: string): boolean {
+  return HOLIDAY_SET.has(dateStr);
+}
+
+/** 営業日(平日かつ非祝日)か */
+export function isBusinessDay(dateStr: string): boolean {
+  return !isWeekend(dateStr) && !isHoliday(dateStr);
+}
+
+/**
+ * その日が休日(土日祝)なら、dir 方向(+1=未来 / -1=過去)へ営業日になるまでずらす。
+ * 既に営業日ならそのまま返す。
+ * 祝日データ不整合などで見つからないときの保険として上限(31日)を設け、
+ * 超えたら丸めずに元日を返す(サイレント・フォールバック。無限ループ防止)。
+ */
+export function rollToBusinessDay(dateStr: string, dir: 1 | -1 = 1): string {
+  let cur = dateStr;
+  for (let i = 0; i < 31; i++) {
+    if (isBusinessDay(cur)) return cur;
+    cur = addToDate(cur, "day", dir);
+  }
+  return dateStr;
 }
 
 /** 指定日より後で、指定曜日(0=日〜6=土)に該当する直近の日付を返す */

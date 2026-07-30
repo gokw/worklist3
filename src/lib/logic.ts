@@ -10,6 +10,7 @@ import {
   nextWeekdayAfter,
   nowHHMM,
   parseDateStr,
+  rollToBusinessDay,
   todayStr,
 } from "./date";
 
@@ -179,17 +180,24 @@ export function generateNextOccurrence(task: Task): Task {
 }
 
 /**
- * 定期予定を「完了にせず」次の日程へ延期する(Issue #6)。
- * 現在の日付を基準に次回の日程へ移動し、実績・待ちはクリア。同じタスクを動かす。
+ * タスクを「完了にせず」次の日程へ延期する(Issue #6 / #37)。
+ * 現在の日付を基準に次の日程へ移動し、実績・待ちはクリア。同じタスクを動かす。
+ *   - 繰り返しなし: 翌営業日へ(土日祝は飛ばす)。
+ *   - 繰り返しあり: 次回の日程へ(曜日指定はその曜日/それ以外は N単位後)。
+ *     ※ 繰り返し次回日の休日回避はフェーズ2で対応(#30)。ここでは現状の算出を踏襲。
  */
 export function postponeTask(task: Task): Task {
-  const r = task.repeat;
-  if (!r) return task;
   const base = task.date ?? todayStr();
-  const nextDate =
-    r.unit === "week" && r.weekdays && r.weekdays.length > 0
-      ? nextWeekdayAfter(base, r.weekdays)
-      : addToDate(base, r.unit, r.interval);
+  const r = task.repeat;
+  let nextDate: string;
+  if (!r) {
+    // 繰り返しなし: 翌日にしてから、休日なら翌営業日へ(#37。金→月)
+    nextDate = rollToBusinessDay(addToDate(base, "day", 1), 1);
+  } else if (r.unit === "week" && r.weekdays && r.weekdays.length > 0) {
+    nextDate = nextWeekdayAfter(base, r.weekdays);
+  } else {
+    nextDate = addToDate(base, r.unit, r.interval);
+  }
   // 期限は移動した日数分だけ一緒にずらす
   const shiftDays = Math.round(
     (parseDateStr(nextDate).getTime() - parseDateStr(base).getTime()) / 86400000

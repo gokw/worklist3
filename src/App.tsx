@@ -653,30 +653,37 @@ export default function App() {
     [upsert, showToast, pushUndo]
   );
 
-  // 定期予定を完了にせず次の日程へ延期(Issue #6)
+  // タスクを次の日程へ延期(Issue #6 / #37)。
+  //   繰り返しなし → 翌営業日 / 繰り返しあり → 次回日程。完了・開始済みは対象外。
+  //   対象は「引数のタスク(行ボタン)」優先。無ければ選択タスク、無ければカーソル1件。
   const handlePostpone = useCallback(
-    (task: Task) => {
-      if (!task.repeat) {
-        showToast("繰り返し設定のあるタスクだけ延期できます");
+    (task?: Task) => {
+      const pool = task
+        ? [task]
+        : selectedIds.length > 0
+          ? visibleTasks.filter((t) => selectedIds.includes(t.id))
+          : visibleTasks.filter((t) => t.id === focusedId);
+      if (pool.length === 0) return;
+      // Issue #15: 延期できるのは未開始のみ。完了・開始済みは除いて残りだけ動かす。
+      const targets = pool.filter((t) => !t.actEnd && !t.actStart);
+      if (targets.length === 0) {
+        showToast("延期できるタスクがありません(完了・開始済みは対象外)");
         return;
       }
-      // Issue #15: 延期できるのは未開始のみ。完了・開始済みは延期する必要がない
-      if (task.actEnd) {
-        showToast("完了したタスクは延期できません");
-        return;
-      }
-      if (task.actStart) {
-        showToast("開始済みのタスクは延期できません(中断は I キー)");
-        return;
-      }
-      pushUndo("延期");
-      const moved = postponeTask(task);
-      // 延期先が今の一覧から外れる場合に、次の残タスクへカーソルを送る(Issue #36 と同種)
-      armRefocusIfLeaves(task.id);
-      upsert([moved]);
-      showToast(`次の日程へ延期しました: ${moved.date}`, true);
+      const skipped = pool.length - targets.length;
+      pushUndo(targets.length > 1 ? `延期(${targets.length}件)` : "延期");
+      const moved = targets.map((t) => postponeTask(t));
+      // カーソル位置のタスクが一覧から外れる場合に、次の残タスクへカーソルを送る(Issue #36 と同種)
+      armRefocusIfLeaves(focusedId ?? targets[0].id);
+      upsert(moved);
+      showToast(
+        targets.length > 1
+          ? `${targets.length}件を延期しました${skipped ? `(${skipped}件は対象外)` : ""}`
+          : `延期しました: ${formatDateJa(moved[0].date as string)}`,
+        true
+      );
     },
-    [upsert, showToast, pushUndo, armRefocusIfLeaves]
+    [visibleTasks, selectedIds, focusedId, upsert, showToast, pushUndo, armRefocusIfLeaves]
   );
 
   /**
@@ -1355,10 +1362,10 @@ export default function App() {
           e.preventDefault();
           handleCopy(focused);
           break;
-        case "p": // 定期予定を次の日程へ延期(未開始のみ。判定・メッセージは handlePostpone)
-          if (!focused) break;
+        case "p": // 次の日程へ延期(選択があればまとめて/無ければカーソル。判定は handlePostpone)
+          if (!focused && selectedIds.length === 0) break;
           e.preventDefault();
-          handlePostpone(focused);
+          handlePostpone();
           break;
         case "enter": // 表: カーソルのセルを編集。列未選択や表以外は詳細編集
           if (!focused) break;

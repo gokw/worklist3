@@ -80,15 +80,20 @@ export default function TaskActions({
           </button>
         </>
       )}
-      {/* Issue #15: 延期は未開始のみ(実行中・完了では出さない) */}
-      {task.repeat && !running && !done && (
+      {/* 延期は未開始のみ(実行中・完了では出さない。Issue #15)。
+          繰り返しなしは翌営業日へ、繰り返しは次回日程へ(#37) */}
+      {!running && !done && (
         <button
           className={`${base} ${
             compact
               ? "text-purple-500 hover:bg-purple-100"
               : "border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100"
           }`}
-          title="完了にせず次の日程へ延期(Pキー)"
+          title={
+            task.repeat
+              ? "完了にせず次の日程へ延期(Pキー)"
+              : "翌営業日へ延期(土日祝は飛ばす。Pキー)"
+          }
           onClick={() => onPostpone(task)}
         >
           {label("⏭", "次へ")}
