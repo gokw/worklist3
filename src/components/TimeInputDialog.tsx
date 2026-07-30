@@ -5,6 +5,8 @@
 //   - 手入力: 数字4桁(0930)でも H:MM でもOK(parseTimeInputで正規化)
 //   - 「現在時刻」ボタンは常設
 //   - quickButtons: 呼び出し側が渡す候補ボタン(開始=「続き時間」、終了=「終了予定」等)
+//   - クイックボタンは押した瞬間に確定する(値セット＋確定の1タップ。Issue #38 案B)。
+//     任意の時刻を入れたいときだけ入力欄に打って Enter / 決定。
 // ==============================================================
 import { useEffect, useRef, useState } from "react";
 import { nowHHMM, parseTimeInput } from "../lib/date";
@@ -59,8 +61,11 @@ export default function TimeInputDialog({
     inputRef.current?.select();
   }, []);
 
-  const submit = () => {
-    const parsed = parseTimeInput(value);
+  const submit = () => confirmWith(value);
+
+  // クイックボタン用: 値を確定する(1タップで開始/終了まで。Issue #38 案B)
+  const confirmWith = (raw: string) => {
+    const parsed = parseTimeInput(raw);
     if (!parsed) {
       setError("0000〜2359の数字4桁で入力してください(例: 0930)");
       return;
@@ -98,15 +103,14 @@ export default function TimeInputDialog({
         {error ? (
           <p className="mt-1 text-[11px] text-red-600">{error}</p>
         ) : (
-          <p className="mt-1 text-[11px] text-gray-400">数字4桁(例 0930)。0000〜2359</p>
+          <p className="mt-1 text-[11px] text-gray-400">
+            数字4桁(例 0930)＋Enter。下のボタンは1タップで確定します
+          </p>
         )}
 
+        {/* クイックボタン=押した瞬間に確定(Issue #38 案B) */}
         <div className="mt-3 flex flex-wrap gap-1">
-          <button
-            type="button"
-            className={quickBtn}
-            onClick={() => setValue(nowHHMM().replace(":", ""))}
-          >
+          <button type="button" className={quickBtn} onClick={() => confirmWith(nowHHMM())}>
             現在時刻
           </button>
           {quickButtons
@@ -116,7 +120,7 @@ export default function TimeInputDialog({
                 key={b.label}
                 type="button"
                 className={quickBtn}
-                onClick={() => setValue(b.value.replace(":", ""))}
+                onClick={() => confirmWith(b.value)}
               >
                 {b.label}
               </button>
