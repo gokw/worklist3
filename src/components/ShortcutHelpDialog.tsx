@@ -39,6 +39,11 @@ const GLOBAL_KEYS: [string, string][] = [
   ["Esc", "ダイアログ・セル編集を閉じる(複数選択中は選択を解除)"],
 ];
 
+// GitHubリンク(Issue #44)。リポジトリ / コミット一覧 / 該当ビルドのコミット。
+const REPO_URL = "https://github.com/gokw/worklist3";
+const COMMITS_URL = `${REPO_URL}/commits/main/`;
+const COMMIT_URL = `${REPO_URL}/commit/${__BUILD_HASH__}`;
+
 // ビルド時に埋め込んだ最終更新日を、日本時間の YYYY-MM-DD に整形する(Issue #41)。
 // ビルドはGitHub(UTC)で走るため、必ずJSTへ変換して日付ズレを防ぐ。
 const LAST_UPDATED = (() => {
@@ -115,10 +120,43 @@ export default function ShortcutHelpDialog({ onClose }: Props) {
           </div>
         </div>
 
-        {/* 最終更新日(Issue #41)。push→自動デプロイのたびに自動更新される */}
-        <p className="mt-4 border-t border-gray-100 pt-2 text-right text-[11px] text-gray-400">
-          最終更新: {LAST_UPDATED}
-        </p>
+        {/* GitHubリンク(#44)と最終更新日(#41)。
+            リンククリックでダイアログが閉じないよう mousedown の伝播を止める */}
+        <div
+          className="mt-4 flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-2 text-[11px] text-gray-400"
+          onMouseDown={(e) => e.stopPropagation()}
+        >
+          <span className="flex items-center gap-3">
+            <a
+              href={REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:underline"
+            >
+              GitHub リポジトリ ↗
+            </a>
+            <a
+              href={COMMITS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:underline"
+            >
+              コミット一覧 ↗
+            </a>
+          </span>
+          <span>
+            最終更新:{" "}
+            <a
+              href={COMMIT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-blue-500 hover:underline"
+              title="この画面のビルドのコミットを開く"
+            >
+              {LAST_UPDATED}
+            </a>
+          </span>
+        </div>
       </div>
     </div>
   );
