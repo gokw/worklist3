@@ -3,8 +3,8 @@
 // 繰り返し設定はExcel版の記号入力を廃止し、フォームUIで指定する
 // ==============================================================
 import { useEffect, useRef, useState } from "react";
-import type { RepeatConfig, Task, TaskScope } from "../types";
-import { ALL_IMPORTANCES, REPEAT_UNIT_LABELS, SCOPE_LABELS, WEEKDAY_LABELS } from "../types";
+import type { RepeatConfig, Task } from "../types";
+import { ALL_IMPORTANCES, REPEAT_UNIT_LABELS, WEEKDAY_LABELS } from "../types";
 import TimeField from "./TimeField";
 import CategoryInput from "./CategoryInput";
 
@@ -430,30 +430,6 @@ export default function TaskForm({
               />
             </div>
           ))}
-        </div>
-
-        {/* 仕事/個人(既定で正しいことが多いので入力の流れの最後段に置く) */}
-        <div className="mb-4">
-          <label className={labelCls}>仕事 / 個人</label>
-          <div className="flex gap-1">
-            {(["work", "personal"] as TaskScope[]).map((s) => (
-              <button
-                key={s}
-                type="button"
-                onClick={() => set("scope", s)}
-                className={`rounded px-4 py-1.5 text-sm font-semibold ${
-                  draft.scope === s
-                    ? s === "work"
-                      ? "bg-blue-600 text-white"
-                      : "bg-emerald-600 text-white"
-                    : "border border-gray-300 bg-white text-gray-500 hover:bg-gray-100"
-                }`}
-              >
-                {s === "work" ? "💼 " : "🏠 "}
-                {SCOPE_LABELS[s]}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* 実績(記録): 普段は一覧のS/Eボタンで自動入力されるので、フォームでは最後の手直し用 */}

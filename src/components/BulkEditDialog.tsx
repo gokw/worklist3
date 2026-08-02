@@ -1,12 +1,12 @@
 // ==============================================================
 // 一括編集ダイアログ(Issue #3)
 //   選択した複数タスクに、チェックした項目だけをまとめて適用する。
-//   対象: 日付 / 期限 / カテゴリ / 重要度 / 区分(仕事・個人)
+//   対象: 日付 / 期限 / カテゴリ / 重要度
 //   日付は「指定日にセット」または「前日/翌日/今日にずらす」。
 // ==============================================================
 import { useEffect, useState } from "react";
-import type { Importance, TaskScope } from "../types";
-import { ALL_IMPORTANCES, SCOPE_LABELS } from "../types";
+import type { Importance } from "../types";
+import { ALL_IMPORTANCES } from "../types";
 import CategoryInput from "./CategoryInput";
 
 /** 日付の変更方法 */
@@ -20,7 +20,6 @@ export interface BulkChanges {
   deadline?: { value?: string }; // value 空=期限クリア
   category?: string;
   importance?: Importance;
-  scope?: TaskScope;
 }
 
 interface Props {
@@ -49,9 +48,6 @@ export default function BulkEditDialog({ count, categories, onApply, onClose }: 
   const [impOn, setImpOn] = useState(false);
   const [impValue, setImpValue] = useState<Importance>("C");
 
-  const [scopeOn, setScopeOn] = useState(false);
-  const [scopeValue, setScopeValue] = useState<TaskScope>("work");
-
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -60,7 +56,7 @@ export default function BulkEditDialog({ count, categories, onApply, onClose }: 
     return () => window.removeEventListener("keydown", h);
   }, [onClose]);
 
-  const anyOn = dateOn || deadlineOn || catOn || impOn || scopeOn;
+  const anyOn = dateOn || deadlineOn || catOn || impOn;
 
   const apply = () => {
     const changes: BulkChanges = {};
@@ -72,7 +68,6 @@ export default function BulkEditDialog({ count, categories, onApply, onClose }: 
     if (deadlineOn) changes.deadline = { value: deadlineValue || undefined };
     if (catOn) changes.category = catValue.trim();
     if (impOn) changes.importance = impValue;
-    if (scopeOn) changes.scope = scopeValue;
     onApply(changes);
   };
 
@@ -200,35 +195,6 @@ export default function BulkEditDialog({ count, categories, onApply, onClose }: 
                     </option>
                   ))}
                 </select>
-              </div>
-            )}
-          </div>
-
-          {/* 区分(仕事/個人) */}
-          <div className="rounded border border-gray-200 p-2">
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={scopeOn} onChange={(e) => setScopeOn(e.target.checked)} />
-              <span className={labelCls}>仕事 / 個人</span>
-            </label>
-            {scopeOn && (
-              <div className="mt-2 flex gap-1 pl-6">
-                {(["work", "personal"] as TaskScope[]).map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    onClick={() => setScopeValue(s)}
-                    className={`rounded px-4 py-1 text-sm font-semibold ${
-                      scopeValue === s
-                        ? s === "work"
-                          ? "bg-blue-600 text-white"
-                          : "bg-emerald-600 text-white"
-                        : "border border-gray-300 bg-white text-gray-500 hover:bg-gray-100"
-                    }`}
-                  >
-                    {s === "work" ? "💼 " : "🏠 "}
-                    {SCOPE_LABELS[s]}
-                  </button>
-                ))}
               </div>
             )}
           </div>

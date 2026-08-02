@@ -94,12 +94,6 @@ export default function TaskCards({
                 >
                   {DERIVED_STATUS_LABELS[derivedStatus(t)]}
                 </button>
-                <span
-                  className="text-[11px]"
-                  title={t.scope === "work" ? "仕事" : "個人"}
-                >
-                  {t.scope === "work" ? "💼" : "🏠"}
-                </span>
                 {t.category && (
                   <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[11px] text-blue-700">
                     {t.category}

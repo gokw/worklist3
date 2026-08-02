@@ -1,9 +1,9 @@
 // ==============================================================
-// ツールバー: 日付移動・仕事/個人モード・表示切替・カテゴリ絞込・各種操作
+// ツールバー: 日付移動・表示切替・カテゴリ絞込・各種操作
 // ==============================================================
 import { useEffect, useRef, useState } from "react";
-import type { DoneFilter, ViewMode, WorkMode } from "../types";
-import { DONE_FILTER_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
+import type { DoneFilter, ViewMode } from "../types";
+import { DONE_FILTER_LABELS, VIEW_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
 import type { BackupState } from "../lib/backup";
 import { loadGcalConfig, saveGcalConfig } from "../lib/gcalClient";
@@ -77,8 +77,6 @@ function pushFilterHistory(q: string): string[] {
 interface Props {
   selectedDate: string;
   onDateChange: (date: string) => void;
-  mode: WorkMode;
-  onModeChange: (m: WorkMode) => void;
   viewMode: ViewMode;
   onViewModeChange: (v: ViewMode) => void;
   /** カスタム(範囲指定)の開始日・終了日。空=その側は無制限 */
@@ -109,6 +107,7 @@ interface Props {
   onResetCalendarAuth: () => void;
   onSelectAllVisible: () => void;
   onClearSelection: () => void;
+  onDeleteSelected: () => void;
   selectedCount: number;
   onExport: () => void;
   /** 一覧に出ているタスクをCSVにしてクリップボードへ */
@@ -135,15 +134,6 @@ const chip = (active: boolean) =>
   `rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
     active ? "bg-blue-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"
   }`;
-
-/** モードボタンの色(仕事=青 / 個人=緑 / すべて=グレー) */
-const modeChip = (m: WorkMode, active: boolean) => {
-  if (!active)
-    return "rounded-full px-3 py-1 text-xs font-semibold bg-white text-gray-600 border border-gray-300 hover:bg-gray-100";
-  const color =
-    m === "work" ? "bg-blue-600" : m === "personal" ? "bg-emerald-600" : "bg-gray-700";
-  return `rounded-full px-3 py-1 text-xs font-semibold text-white ${color}`;
-};
 
 export default function Toolbar(p: Props) {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
@@ -293,7 +283,7 @@ export default function Toolbar(p: Props) {
             className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:border-gray-300 disabled:bg-white disabled:text-gray-400"
             disabled={p.selectedCount === 0}
             onClick={p.onBulkEdit}
-            title="選択したタスクの項目(日付・期限・カテゴリ・重要度・区分)をまとめて変更"
+            title="選択したタスクの項目(日付・期限・カテゴリ・重要度)をまとめて変更"
           >
             ✏️ 一括編集 ({p.selectedCount})
           </button>
@@ -306,6 +296,16 @@ export default function Toolbar(p: Props) {
           >
             {p.syncingCalendar ? "📅 登録中…" : `📅 カレンダー登録 (${p.selectedCount})`}
           </button>
+          {/* 一括削除(#43): 選択が1件以上のときだけ表示。スマホからも複数まとめて削除できる */}
+          {p.selectedCount > 0 && (
+            <button
+              className="rounded border border-red-300 bg-white px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50"
+              onClick={p.onDeleteSelected}
+              title="選択したタスクをまとめて削除"
+            >
+              🗑 選択を削除 ({p.selectedCount})
+            </button>
+          )}
           {/* バックアップ異常の警告(Issue #20)。異常時だけ出す。押すと💾メニューへ。
               スヌーズ中は控えめな「停止中」表示にする */}
           {backupNeedsAttention(p.backup) &&
@@ -550,24 +550,8 @@ export default function Toolbar(p: Props) {
         </div>
       </div>
 
-      {/* 2段目: 仕事/個人モード・表示切替・絞込 */}
+      {/* 2段目: 表示切替・絞込 */}
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        {/* 仕事/個人モード切替(Mキーでも巡回)。タスク自身の仕事/個人でビューを絞る */}
-        <div className="flex items-center gap-1">
-          {(["work", "personal", "all"] as WorkMode[]).map((m) => (
-            <button
-              key={m}
-              className={modeChip(m, p.mode === m)}
-              onClick={() => p.onModeChange(m)}
-              title="仕事/個人モードの切替(Mキーで巡回)"
-            >
-              {WORK_MODE_LABELS[m]}
-            </button>
-          ))}
-        </div>
-
-        <span className="mx-1 text-gray-300">|</span>
-
         {/* 期間: 単独[今日以降] + ドロップダウン[今日/全期間/カスタム] */}
         <div className="flex items-center gap-1">
           <button

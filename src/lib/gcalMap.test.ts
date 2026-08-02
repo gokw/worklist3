@@ -16,7 +16,6 @@ function mkTask(over: Partial<Task> = {}): Task {
   return {
     id: "t1",
     title: "会議",
-    scope: "work",
     category: "",
     importance: "C",
     waiting: false,

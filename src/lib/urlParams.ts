@@ -1,21 +1,19 @@
 // ==============================================================
 // URLクエリで表示状態を指定して開く/共有する(Issue #4)
-//   ?mode=work|personal|all
-//   &view=todayOnward|today|everything|custom   (期間)
+//   ?view=todayOnward|today|everything|custom   (期間)
 //   &from=YYYY-MM-DD &to=YYYY-MM-DD             (view=custom の範囲。片側省略可)
 //   &done=all|onlyDone|hideDone                 (完了の扱い)
 //   &planned=1|0                                (予定のみ=開始予定時刻ありに絞る)
 //   &category=...                               (カテゴリ絞り込み)
 //   &q=...                                      (タスク名フィルタ。/パターン/ で正規表現)
 // ==============================================================
-import type { DoneFilter, ViewMode, WorkMode } from "../types";
+import type { DoneFilter, ViewMode } from "../types";
 
 const VIEWS: ViewMode[] = ["todayOnward", "today", "everything", "custom"];
 const DONE_FILTERS: DoneFilter[] = ["all", "onlyDone", "hideDone"];
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface UrlSettings {
-  mode?: WorkMode;
   view?: ViewMode;
   from?: string;
   to?: string;
@@ -29,9 +27,6 @@ export interface UrlSettings {
 export function readUrlSettings(): UrlSettings {
   const p = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
   const s: UrlSettings = {};
-
-  const mode = p.get("mode");
-  if (mode === "work" || mode === "personal" || mode === "all") s.mode = mode;
 
   const view = p.get("view");
   if (view && VIEWS.includes(view as ViewMode)) s.view = view as ViewMode;
@@ -62,7 +57,6 @@ export function readUrlSettings(): UrlSettings {
 
 /** 現在の表示状態をURLへ反映(履歴は汚さず置換)。既定値は書かずURLを短く保つ */
 export function writeUrlSettings(s: {
-  mode: WorkMode;
   view: ViewMode;
   done: DoneFilter;
   planned: boolean;
@@ -73,7 +67,6 @@ export function writeUrlSettings(s: {
 }) {
   if (typeof window === "undefined") return;
   const p = new URLSearchParams();
-  p.set("mode", s.mode);
   p.set("view", s.view);
   if (s.view === "custom") {
     if (s.from) p.set("from", s.from);

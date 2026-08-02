@@ -74,10 +74,10 @@ interface Props extends TaskActionHandlers {
 }
 
 // 見出し(dense はExcel流に圧縮)。並びは Issue #11:
-//   日付、区分、状態、重要度、繰返、タスク名、見積、予定、終予、開始、終了、実績、期限、分類
+//   日付、状態、重要度、繰返、タスク名、見積、予定、終予、開始、終了、実績、期限、分類
 //   (「残り」は隠しカラムとして表示しない)
-const HEADERS_NORMAL = ["", "日付", "区分", "ステータス", "重要度", "繰返", "タスク名", "見積", "開始予定", "終了予定", "開始", "終了", "実績", "期限", "カテゴリ", "操作"] as const;
-const HEADERS_DENSE = ["", "日付", "区", "状", "重", "繰", "タスク名", "見", "予定", "終予", "開始", "終了", "実", "期限", "分類", ""] as const;
+const HEADERS_NORMAL = ["", "日付", "ステータス", "重要度", "繰返", "タスク名", "見積", "開始予定", "終了予定", "開始", "終了", "実績", "期限", "カテゴリ", "操作"] as const;
+const HEADERS_DENSE = ["", "日付", "状", "重", "繰", "タスク名", "見", "予定", "終予", "開始", "終了", "実", "期限", "分類", ""] as const;
 
 // 列幅(px)。タスク名(TITLE_COL)は undefined=可変で残り幅を独占し、
 // ウィンドウ幅いっぱいまで自動で伸びる(横スクロールは最低幅を下回るときだけ)。
@@ -378,11 +378,6 @@ export default function TaskTable({
                 {cell(t, "date", "date", t.date ? formatDateJa(t.date) : "毎日", {
                   tdClass: tdTime,
                 })}
-
-                {/* 区分(仕事/個人)は編集不可 */}
-                <td className={`${td} text-center`} title={t.scope === "work" ? "仕事" : "個人"}>
-                  {t.scope === "work" ? "💼" : "🏠"}
-                </td>
 
                 {/* ステータス(待ちトグル)。ライトは1文字 */}
                 <td className={td}>
