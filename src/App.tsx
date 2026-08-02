@@ -1031,6 +1031,55 @@ export default function App() {
     [focusedField]
   );
 
+  /** 単体削除(確認 + Undo + カーソル維持)。行の🗑ボタン・Deleteキーで共通利用(#43)。 */
+  const handleDeleteTask = useCallback(
+    (id: string) => {
+      const target = tasks.find((t) => t.id === id);
+      if (!confirm(`「${target?.title ?? ""}」を削除しますか？`)) return;
+      // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
+      const idx = visibleTasks.findIndex((t) => t.id === id);
+      const nextFocus = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
+      pushUndo("削除");
+      remove(id);
+      setFocusedId(nextFocus ? nextFocus.id : null);
+      showToast("削除しました", true);
+    },
+    [tasks, visibleTasks, pushUndo, remove, showToast]
+  );
+
+  /** 選択中をまとめて削除(確認 + Undo + カーソル維持)。一括削除ボタン・Deleteキーで共通利用(#43)。 */
+  const handleDeleteSelected = useCallback(() => {
+    if (selectedIds.length === 0) return;
+    if (!confirm(`選択した${selectedIds.length}件を削除しますか？`)) return;
+    // 選択より後ろの最初の残存行、無ければ前の残存行へカーソルを移す
+    const selSet = new Set(selectedIds);
+    let lastSelIdx = -1;
+    visibleTasks.forEach((t, i) => {
+      if (selSet.has(t.id)) lastSelIdx = i;
+    });
+    let nextFocus: Task | undefined;
+    for (let i = lastSelIdx + 1; i < visibleTasks.length; i++) {
+      if (!selSet.has(visibleTasks[i].id)) {
+        nextFocus = visibleTasks[i];
+        break;
+      }
+    }
+    if (!nextFocus) {
+      for (let i = lastSelIdx - 1; i >= 0; i--) {
+        if (!selSet.has(visibleTasks[i].id)) {
+          nextFocus = visibleTasks[i];
+          break;
+        }
+      }
+    }
+    pushUndo(`削除(${selectedIds.length}件)`);
+    removeMany(selectedIds);
+    setSelectedIds([]);
+    setAnchorId(null);
+    setFocusedId(nextFocus ? nextFocus.id : null);
+    showToast(`${selectedIds.length}件を削除しました`, true);
+  }, [selectedIds, visibleTasks, pushUndo, removeMany, showToast]);
+
   // armRefocusIfLeaves の続き: 対象が一覧から消えていたら、控えておいた隣へカーソルを送る(Issue #36 と同種)。
   useEffect(() => {
     const p = pendingRefocus.current;
@@ -1446,48 +1495,9 @@ export default function App() {
           break;
         case "delete":
           e.preventDefault();
-          if (selectedIds.length > 0) {
-            // 複数選択があればまとめて削除(選択より後ろの最初の残存行、無ければ前の残存行へカーソル)
-            if (confirm(`選択した${selectedIds.length}件を削除しますか？`)) {
-              const selSet = new Set(selectedIds);
-              let lastSelIdx = -1;
-              visibleTasks.forEach((t, i) => {
-                if (selSet.has(t.id)) lastSelIdx = i;
-              });
-              let nextFocus: Task | undefined;
-              for (let i = lastSelIdx + 1; i < visibleTasks.length; i++) {
-                if (!selSet.has(visibleTasks[i].id)) {
-                  nextFocus = visibleTasks[i];
-                  break;
-                }
-              }
-              if (!nextFocus) {
-                for (let i = lastSelIdx - 1; i >= 0; i--) {
-                  if (!selSet.has(visibleTasks[i].id)) {
-                    nextFocus = visibleTasks[i];
-                    break;
-                  }
-                }
-              }
-              pushUndo(`削除(${selectedIds.length}件)`);
-              removeMany(selectedIds);
-              setSelectedIds([]);
-              setAnchorId(null);
-              setFocusedId(nextFocus ? nextFocus.id : null);
-              showToast(`${selectedIds.length}件を削除しました`, true);
-            }
-            break;
-          }
-          if (!focused) break;
-          if (confirm(`「${focused.title}」を削除しますか？`)) {
-            // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
-            const idx = visibleTasks.findIndex((t) => t.id === focused.id);
-            const nextFocus = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
-            pushUndo("削除");
-            remove(focused.id);
-            setFocusedId(nextFocus ? nextFocus.id : null);
-            showToast("削除しました", true);
-          }
+          // 複数選択があればまとめて削除。無ければカーソル行を単体削除(共通ロジック #43)
+          if (selectedIds.length > 0) handleDeleteSelected();
+          else if (focused) handleDeleteTask(focused.id);
           break;
       }
     };
@@ -1524,8 +1534,8 @@ export default function App() {
     handlePostpone,
     openEditForm,
     toggleSelect,
-    remove,
-    removeMany,
+    handleDeleteTask,
+    handleDeleteSelected,
     showToast,
     cycleMode,
     pushUndo,
@@ -1541,6 +1551,7 @@ export default function App() {
     onCopy: handleCopy,
     onPostpone: handlePostpone,
     onEdit: openEditForm,
+    onDelete: (t: Task) => handleDeleteTask(t.id),
   };
 
   return (
@@ -1581,6 +1592,7 @@ export default function App() {
         onResetCalendarAuth={handleResetCalendarAuth}
         onSelectAllVisible={selectAllVisible}
         onClearSelection={clearSelection}
+        onDeleteSelected={handleDeleteSelected}
         selectedCount={selectedIds.length}
         onExport={() => exportTasksAsJson(tasks)}
         onCopyCsv={handleCopyCsv}

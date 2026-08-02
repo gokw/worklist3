@@ -109,6 +109,7 @@ interface Props {
   onResetCalendarAuth: () => void;
   onSelectAllVisible: () => void;
   onClearSelection: () => void;
+  onDeleteSelected: () => void;
   selectedCount: number;
   onExport: () => void;
   /** 一覧に出ているタスクをCSVにしてクリップボードへ */
@@ -306,6 +307,16 @@ export default function Toolbar(p: Props) {
           >
             {p.syncingCalendar ? "📅 登録中…" : `📅 カレンダー登録 (${p.selectedCount})`}
           </button>
+          {/* 一括削除(#43): 選択が1件以上のときだけ表示。スマホからも複数まとめて削除できる */}
+          {p.selectedCount > 0 && (
+            <button
+              className="rounded border border-red-300 bg-white px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50"
+              onClick={p.onDeleteSelected}
+              title="選択したタスクをまとめて削除"
+            >
+              🗑 選択を削除 ({p.selectedCount})
+            </button>
+          )}
           {/* バックアップ異常の警告(Issue #20)。異常時だけ出す。押すと💾メニューへ。
               スヌーズ中は控えめな「停止中」表示にする */}
           {backupNeedsAttention(p.backup) &&
