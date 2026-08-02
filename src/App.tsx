@@ -3,7 +3,8 @@
 //   状態管理・フィルタ・ショートカットキー・各ダイアログの制御
 // ==============================================================
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { DoneFilter, LayoutMode, Task, ViewMode } from "./types";
+import type { DoneFilter, LayoutMode, Task, TaskScope, ViewMode, WorkMode } from "./types";
+import { WORK_MODE_LABELS } from "./types";
 import { addToDate, formatDateJa, formatMin, nowHHMM, todayStr } from "./lib/date";
 import {
   actMin,
@@ -117,6 +118,13 @@ export default function App() {
   /** 表の編集中セル(キーボードからも開始できるよう App が保持) */
   const [editingCell, setEditingCell] = useState<EditingCell>(null);
 
+  // 仕事/個人モード。URL > 前回のモード > すべて
+  const [mode, setMode] = useState<WorkMode>(() => {
+    if (urlInit.mode) return urlInit.mode;
+    const saved = localStorage.getItem("worklist3.mode");
+    return saved === "work" || saved === "personal" ? saved : "all";
+  });
+
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
   const [formIsNew, setFormIsNew] = useState(true);
@@ -194,9 +202,14 @@ export default function App() {
     focusedIdRef.current = focusedId;
   }, [focusedId]);
 
+  useEffect(() => {
+    localStorage.setItem("worklist3.mode", mode);
+  }, [mode]);
+
   // 現在の表示状態をURLへ反映(ブックマーク・共有できるように)。Issue #4
   useEffect(() => {
     writeUrlSettings({
+      mode,
       view: viewMode,
       done: doneFilter,
       planned: plannedOnly,
@@ -205,7 +218,7 @@ export default function App() {
       from: customFrom,
       to: customTo,
     });
-  }, [viewMode, doneFilter, plannedOnly, categoryFilter, titleFilter, customFrom, customTo]);
+  }, [mode, viewMode, doneFilter, plannedOnly, categoryFilter, titleFilter, customFrom, customTo]);
 
   /** undoできる操作のトーストは、元に戻せる窓(UNDO_WINDOW_MS)と同じ長さ出す */
   const showToast = useCallback((msg: string, undoable = false) => {
@@ -343,6 +356,12 @@ export default function App() {
   );
 
   // ---------- フィルタ・並び替え ----------
+  /** 現在のモード(仕事/個人/すべて)で表示すべきタスクか。タスク自身の scope で判定 */
+  const matchesMode = useCallback(
+    (t: Task) => mode === "all" || t.scope === mode,
+    [mode]
+  );
+
   /**
    * タスク名の判定関数。入力が空なら null(絞り込まない)。
    *   通常          … 中間一致(大文字小文字を区別しない)
@@ -394,8 +413,8 @@ export default function App() {
   );
 
   const visibleTasks = useMemo(() => {
-    // 1. 期間
-    let list = tasks.filter((t) => matchesPeriod(t));
+    // 1. 仕事/個人 と 期間
+    let list = tasks.filter((t) => matchesMode(t) && matchesPeriod(t));
     // 2. 完了の扱い
     if (doneFilter === "onlyDone") list = list.filter((t) => !!t.actEnd);
     else if (doneFilter === "hideDone") list = list.filter((t) => !t.actEnd);
@@ -411,7 +430,7 @@ export default function App() {
       const pos = new Map(dateShift.order.map((id, i) => [id, i] as const));
       // 固定中は、ずらす前に見えていた行を期間フィルタで落とさず残す(Issue #31)。
       // 期間外へ動かしても消えないので、L/H の連打で同じタスクを何日も送れる。
-      // (日付移動は他の絞り込み条件(カテゴリ・完了等)を変えないので、
+      // (日付移動は他の絞り込み条件(区分・カテゴリ・完了等)を変えないので、
       //  固定前に見えていた=それらは今も満たす。復帰対象は id だけで判定してよい)
       const byId = new Map(tasks.map((t) => [t.id, t] as const));
       const merged = new Map(list.map((t) => [t.id, t] as const));
@@ -426,6 +445,7 @@ export default function App() {
     return sortTasks(list);
   }, [
     tasks,
+    matchesMode,
     matchesPeriod,
     doneFilter,
     plannedOnly,
@@ -440,6 +460,7 @@ export default function App() {
    */
   const revealTask = useCallback(
     (t: Task) => {
+      if (mode !== "all" && t.scope !== mode) setMode("all");
       if (!matchesPeriod(t)) setViewMode("everything"); // 期間から外れているなら全期間へ
       if (doneFilter === "hideDone" && t.actEnd) setDoneFilter("all");
       if (doneFilter === "onlyDone" && !t.actEnd) setDoneFilter("all");
@@ -451,7 +472,7 @@ export default function App() {
       // 絞り込みを緩めた直後は再描画が要る。行が実際に出てからスクロールする(下の useEffect)
       pendingRevealId.current = t.id;
     },
-    [matchesPeriod, doneFilter, plannedOnly, categoryFilter, titleMatcher]
+    [mode, matchesPeriod, doneFilter, plannedOnly, categoryFilter, titleMatcher]
   );
 
   // revealTask の続き: 対象行が一覧に現れたら画面内へスクロールする
@@ -510,15 +531,18 @@ export default function App() {
   );
 
   // ---------- タスク操作 ----------
+  // 新規タスクの既定 scope = 今のビュー(すべてビューのときは仕事)
+  const defaultScope: TaskScope = mode === "personal" ? "personal" : "work";
+
   const openNewForm = useCallback(
     (initial?: Partial<Task>) => {
-      setFormTask(createTask({ date: selectedDate, ...initial }));
+      setFormTask(createTask({ date: selectedDate, scope: defaultScope, ...initial }));
       setFormIsNew(true);
     },
-    [selectedDate]
+    [selectedDate, defaultScope]
   );
 
-  // 複数タスクの一括登録(Issue #9)。日付省略行は選択日
+  // 複数タスクの一括登録(Issue #9)。日付省略行は選択日、区分は今のビューに合わせる
   const handleBulkAdd = useCallback(
     (rows: ParsedRow[]) => {
       const created = rows.map((r) =>
@@ -527,6 +551,7 @@ export default function App() {
           date: r.date,
           category: r.category,
           estimateMin: r.estimateMin,
+          scope: defaultScope,
           // 旧worklist形式(Issue #22)で取り込んだ追加項目。無ければ createTask の既定値のまま
           ...(r.planStart ? { planStart: r.planStart } : {}),
           ...(r.actEnd ? { actEnd: r.actEnd } : {}),
@@ -549,7 +574,7 @@ export default function App() {
       setBulkAddOpen(false);
       showToast(`${created.length}件を登録しました`, created.length > 0);
     },
-    [upsert, showToast, pushUndo]
+    [defaultScope, upsert, showToast, pushUndo]
   );
 
   // JSONファイルからの一括インポート(Issue #12)。
@@ -769,12 +794,13 @@ export default function App() {
 
       const kindLabel = { teams: "Teamsリンク", calendar: "予定", plain: "テキスト" }[kind];
       showToast(`${kindLabel}として認識しました。内容を確認して保存してください`);
-      setFormTask({ ...task });
+      // 取込タスクも今のビューの仕事/個人に合わせる
+      setFormTask({ ...task, scope: defaultScope });
       setFormIsNew(true);
     } catch {
       showToast("クリップボードを読み取れませんでした(ブラウザの許可が必要です)");
     }
-  }, [showToast, tasks, revealTask]);
+  }, [showToast, defaultScope, tasks, revealTask]);
 
   /**
    * 一覧に出ているタスクをCSVにしてクリップボードへ。生成AIに渡して日記にする用途。
@@ -853,13 +879,14 @@ export default function App() {
     showToast("カレンダー連携をリセットしました(トークンを破棄)");
   }, [showToast]);
 
-  // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスクは除く
+  // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスク・モード対象外は除く
   const handleRandomStart = useCallback(() => {
     const candidates = tasks.filter(
       (t) =>
         (!t.date || t.date === selectedDate) &&
         !t.planStart &&
-        derivedStatus(t) === "notStarted"
+        derivedStatus(t) === "notStarted" &&
+        matchesMode(t)
     );
     if (candidates.length === 0) {
       showToast("該当するタスクが見つかりませんでした");
@@ -867,7 +894,16 @@ export default function App() {
     }
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
     handleStart(picked);
-  }, [tasks, selectedDate, handleStart, showToast]);
+  }, [tasks, selectedDate, handleStart, showToast, matchesMode]);
+
+  // モードを 仕事→個人→すべて の順に巡回(Mキー)
+  const cycleMode = useCallback(() => {
+    setMode((m) => {
+      const next: WorkMode = m === "work" ? "personal" : m === "personal" ? "all" : "work";
+      showToast(`モード: ${WORK_MODE_LABELS[next]}`);
+      return next;
+    });
+  }, [showToast]);
 
   // 連続開始時刻セット(Excel版 SetSequentialStartHHMM 踏襲)
   //   選択した順に、見積を積み上げて開始予定時刻を割り当てる。
@@ -941,6 +977,7 @@ export default function App() {
           if (changes.deadline) patch.deadline = changes.deadline.value;
           if (changes.category !== undefined) patch.category = changes.category;
           if (changes.importance !== undefined) patch.importance = changes.importance;
+          if (changes.scope !== undefined) patch.scope = changes.scope;
           return { ...t, ...patch, updatedAt: new Date().toISOString() };
         });
       if (updated.length > 0) {
@@ -993,55 +1030,6 @@ export default function App() {
     },
     [focusedField]
   );
-
-  /** 単体削除(確認 + Undo + カーソル維持)。行の🗑ボタン・Deleteキーで共通利用(#43)。 */
-  const handleDeleteTask = useCallback(
-    (id: string) => {
-      const target = tasks.find((t) => t.id === id);
-      if (!confirm(`「${target?.title ?? ""}」を削除しますか？`)) return;
-      // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
-      const idx = visibleTasks.findIndex((t) => t.id === id);
-      const nextFocus = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
-      pushUndo("削除");
-      remove(id);
-      setFocusedId(nextFocus ? nextFocus.id : null);
-      showToast("削除しました", true);
-    },
-    [tasks, visibleTasks, pushUndo, remove, showToast]
-  );
-
-  /** 選択中をまとめて削除(確認 + Undo + カーソル維持)。一括削除ボタン・Deleteキーで共通利用(#43)。 */
-  const handleDeleteSelected = useCallback(() => {
-    if (selectedIds.length === 0) return;
-    if (!confirm(`選択した${selectedIds.length}件を削除しますか？`)) return;
-    // 選択より後ろの最初の残存行、無ければ前の残存行へカーソルを移す
-    const selSet = new Set(selectedIds);
-    let lastSelIdx = -1;
-    visibleTasks.forEach((t, i) => {
-      if (selSet.has(t.id)) lastSelIdx = i;
-    });
-    let nextFocus: Task | undefined;
-    for (let i = lastSelIdx + 1; i < visibleTasks.length; i++) {
-      if (!selSet.has(visibleTasks[i].id)) {
-        nextFocus = visibleTasks[i];
-        break;
-      }
-    }
-    if (!nextFocus) {
-      for (let i = lastSelIdx - 1; i >= 0; i--) {
-        if (!selSet.has(visibleTasks[i].id)) {
-          nextFocus = visibleTasks[i];
-          break;
-        }
-      }
-    }
-    pushUndo(`削除(${selectedIds.length}件)`);
-    removeMany(selectedIds);
-    setSelectedIds([]);
-    setAnchorId(null);
-    setFocusedId(nextFocus ? nextFocus.id : null);
-    showToast(`${selectedIds.length}件を削除しました`, true);
-  }, [selectedIds, visibleTasks, pushUndo, removeMany, showToast]);
 
   // armRefocusIfLeaves の続き: 対象が一覧から消えていたら、控えておいた隣へカーソルを送る(Issue #36 と同種)。
   useEffect(() => {
@@ -1352,6 +1340,10 @@ export default function App() {
         //     l === "table" ? "tableLight" : l === "tableLight" ? "cards" : "table"
         //   );
         //   break;
+        case "m": // 仕事/個人/すべて モード巡回
+          e.preventDefault();
+          cycleMode();
+          break;
         case "arrowup":
           e.preventDefault();
           if (e.shiftKey) extendSelection(-1); // Shift+↑: 範囲選択(Issue #8)
@@ -1454,9 +1446,48 @@ export default function App() {
           break;
         case "delete":
           e.preventDefault();
-          // 複数選択があればまとめて削除。無ければカーソル行を単体削除(共通ロジック #43)
-          if (selectedIds.length > 0) handleDeleteSelected();
-          else if (focused) handleDeleteTask(focused.id);
+          if (selectedIds.length > 0) {
+            // 複数選択があればまとめて削除(選択より後ろの最初の残存行、無ければ前の残存行へカーソル)
+            if (confirm(`選択した${selectedIds.length}件を削除しますか？`)) {
+              const selSet = new Set(selectedIds);
+              let lastSelIdx = -1;
+              visibleTasks.forEach((t, i) => {
+                if (selSet.has(t.id)) lastSelIdx = i;
+              });
+              let nextFocus: Task | undefined;
+              for (let i = lastSelIdx + 1; i < visibleTasks.length; i++) {
+                if (!selSet.has(visibleTasks[i].id)) {
+                  nextFocus = visibleTasks[i];
+                  break;
+                }
+              }
+              if (!nextFocus) {
+                for (let i = lastSelIdx - 1; i >= 0; i--) {
+                  if (!selSet.has(visibleTasks[i].id)) {
+                    nextFocus = visibleTasks[i];
+                    break;
+                  }
+                }
+              }
+              pushUndo(`削除(${selectedIds.length}件)`);
+              removeMany(selectedIds);
+              setSelectedIds([]);
+              setAnchorId(null);
+              setFocusedId(nextFocus ? nextFocus.id : null);
+              showToast(`${selectedIds.length}件を削除しました`, true);
+            }
+            break;
+          }
+          if (!focused) break;
+          if (confirm(`「${focused.title}」を削除しますか？`)) {
+            // 削除した行の位置に次の行を繰り上げてカーソルを残す(無ければ1つ上へ)
+            const idx = visibleTasks.findIndex((t) => t.id === focused.id);
+            const nextFocus = visibleTasks[idx + 1] ?? visibleTasks[idx - 1];
+            pushUndo("削除");
+            remove(focused.id);
+            setFocusedId(nextFocus ? nextFocus.id : null);
+            showToast("削除しました", true);
+          }
           break;
       }
     };
@@ -1493,9 +1524,10 @@ export default function App() {
     handlePostpone,
     openEditForm,
     toggleSelect,
-    handleDeleteTask,
-    handleDeleteSelected,
+    remove,
+    removeMany,
     showToast,
+    cycleMode,
     pushUndo,
     performUndo,
     performRedo,
@@ -1509,7 +1541,6 @@ export default function App() {
     onCopy: handleCopy,
     onPostpone: handlePostpone,
     onEdit: openEditForm,
-    onDelete: (t: Task) => handleDeleteTask(t.id),
   };
 
   return (
@@ -1519,6 +1550,11 @@ export default function App() {
       <Toolbar
         selectedDate={selectedDate}
         onDateChange={setSelectedDate}
+        mode={mode}
+        onModeChange={(m) => {
+          setMode(m);
+          showToast(`モード: ${WORK_MODE_LABELS[m]}`);
+        }}
         viewMode={viewMode}
         onViewModeChange={changeView}
         customFrom={customFrom}
@@ -1545,7 +1581,6 @@ export default function App() {
         onResetCalendarAuth={handleResetCalendarAuth}
         onSelectAllVisible={selectAllVisible}
         onClearSelection={clearSelection}
-        onDeleteSelected={handleDeleteSelected}
         selectedCount={selectedIds.length}
         onExport={() => exportTasksAsJson(tasks)}
         onCopyCsv={handleCopyCsv}

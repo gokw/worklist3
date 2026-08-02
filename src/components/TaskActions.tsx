@@ -11,7 +11,6 @@ export interface TaskActionHandlers {
   onCopy: (task: Task) => void;
   onPostpone: (task: Task) => void;
   onEdit: (task: Task) => void;
-  onDelete: (task: Task) => void;
 }
 
 interface Props extends TaskActionHandlers {
@@ -34,7 +33,6 @@ export default function TaskActions({
   onCopy,
   onPostpone,
   onEdit,
-  onDelete,
 }: Props) {
   const running = !!task.actStart && !task.actEnd;
   const done = !!task.actEnd;
@@ -122,17 +120,6 @@ export default function TaskActions({
         onClick={() => onEdit(task)}
       >
         ✎
-      </button>
-      <button
-        className={`${base} ${
-          compact
-            ? "text-red-500 hover:bg-red-100"
-            : "border-red-300 bg-white text-red-600 hover:bg-red-50"
-        }`}
-        title="このタスクを削除(Deleteキー)"
-        onClick={() => onDelete(task)}
-      >
-        {label("🗑", "削除")}
       </button>
     </span>
   );

@@ -55,6 +55,8 @@ export interface Task {
   id: string;
   /** タスク名(Excel D列) */
   title: string;
+  /** 仕事のタスクか個人のタスクか(ビュー切替用。カテゴリとは独立) */
+  scope: TaskScope;
   /** カテゴリ(Excel N列 theme 相当)。分類・集計のためのラベル(例: 運用業務、稟議チェック) */
   category: string;
   /** 重要度 S〜E(新規) */
@@ -119,6 +121,26 @@ export const DONE_FILTER_LABELS: Record<DoneFilter, string> = {
   all: "すべて",
   onlyDone: "完了のみ",
   hideDone: "完了を隠す",
+};
+
+/**
+ * タスクが仕事のものか個人のものか(scope)。カテゴリとは独立した軸。
+ * 「仕事中は仕事だけ／休日は個人だけ」というビュー切替のために各タスクが持つ。
+ */
+export type TaskScope = "work" | "personal";
+
+export const SCOPE_LABELS: Record<TaskScope, string> = {
+  work: "仕事",
+  personal: "個人",
+};
+
+/** 表示モード(仕事/個人/すべて)。scope を絞り込むためのビュー */
+export type WorkMode = "work" | "personal" | "all";
+
+export const WORK_MODE_LABELS: Record<WorkMode, string> = {
+  work: "💼 仕事",
+  personal: "🏠 個人",
+  all: "すべて",
 };
 
 /**

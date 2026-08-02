@@ -37,10 +37,21 @@ export class LocalStorageRepository implements TaskRepository {
   }
 }
 
+/** 旧バージョンで一時的に使っていた「カテゴリ→モード」対応表を1回だけ読む(移行用) */
+function loadLegacyCategoryModes(): Record<string, string> {
+  try {
+    const raw = localStorage.getItem("worklist3.categoryModes.v1");
+    if (raw) return JSON.parse(raw);
+  } catch {
+    /* 壊れていたら無視 */
+  }
+  return {};
+}
+
 /**
  * 旧形式データの変換(インポートでも使うため公開)。
  *  - 初期版は status(5値)を持っていた → 「待ち」フラグ + 実績からの自動判定に変更
- *  - scope(仕事/個人)は廃止(#43) → 残っていれば読み飛ばして落とす
+ *  - scope(仕事/個人)未導入だった → 追加。旧「カテゴリ→モード」設定があれば踏襲、無ければ仕事
  *  - 欠けている必須フィールドは安全な既定値で補完(手書きJSONの取込にも耐える)
  */
 export function migrateTask(raw: Record<string, unknown>): Task {
@@ -51,8 +62,10 @@ export function migrateTask(raw: Record<string, unknown>): Task {
     if (t.status === "done" && !t.actEnd) t.actEnd = t.actStart ?? "00:00";
     delete t.status;
   }
-  // 廃止した区分フィールドは持ち回らない(再保存時に消えて自然にクリーンになる。#43)
-  delete (t as unknown as Record<string, unknown>).scope;
+  if (t.scope !== "work" && t.scope !== "personal") {
+    const legacy = loadLegacyCategoryModes();
+    t.scope = legacy[t.category] === "personal" ? "personal" : "work";
+  }
   // 欠損フィールドの補完
   if (typeof t.category !== "string") t.category = "";
   if (!t.importance) t.importance = "C";
