@@ -137,6 +137,17 @@ const chip = (active: boolean) =>
     active ? "bg-blue-600 text-white" : "bg-white text-gray-600 border border-gray-300 hover:bg-gray-100"
   }`;
 
+// ツールバーの操作ボタン(#43): アイコンのみ・正方形固定幅で横幅を一定に保ち、
+// 件数が変わってもレイアウトがずれないようにする。文字はツールチップで補う。
+const iconBtn =
+  "relative flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-300 bg-white text-base leading-none transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white";
+const addBtn =
+  "flex h-9 w-9 shrink-0 items-center justify-center rounded border border-blue-600 bg-blue-600 text-lg font-bold leading-none text-white transition-colors hover:bg-blue-700";
+// 選択件数バッジ(ボタン右上に重ねる)。ボタン幅を変えないので並びがずれない。
+const badgeCls =
+  "absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold leading-none text-white";
+const toolDivider = "mx-1 h-6 w-px shrink-0 self-center bg-gray-200";
+
 /** モードボタンの色(仕事=青 / 個人=緑 / すべて=グレー) */
 const modeChip = (m: WorkMode, active: boolean) => {
   if (!active)
@@ -254,96 +265,111 @@ export default function Toolbar(p: Props) {
         </span>
 
         <div className="relative ml-auto flex flex-wrap items-center gap-2">
-          <button
-            className="rounded bg-blue-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-blue-700"
-            onClick={p.onAdd}
-            title="ショートカット: N"
-          >
-            + タスク追加
+          {/* 作成系(常時有効) */}
+          <button className={addBtn} onClick={p.onAdd} title="タスク追加(Nキー)" aria-label="タスク追加">
+            ＋
           </button>
           <button
-            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
+            className={`${iconBtn} text-gray-700`}
             onClick={p.onClipboardImport}
-            title="クリップボードからTeams/予定/テキストを自動判別して取込(ショートカット: V)"
+            title="クリップボードからTeams/予定/テキストを自動判別して取込(Vキー)"
+            aria-label="クリップボードから取込"
           >
-            📋 取込
+            📋
           </button>
           <button
-            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
+            className={`${iconBtn} text-gray-700`}
             onClick={p.onBulkAdd}
             title="テキストを貼り付けて複数タスクを一括登録"
+            aria-label="一括登録"
           >
-            📥 一括登録
+            📥
           </button>
           <button
-            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
+            className={`${iconBtn} text-gray-700`}
             onClick={p.onRandomStart}
             title="今日のタスクからランダムに1件開始"
+            aria-label="ランダムに1件開始"
           >
             🎲
           </button>
+
+          <span className={toolDivider} aria-hidden />
+
+          {/* 選択が必要な操作(#43): 未選択時は無効(グレーアウト)にして常時表示。件数は右上バッジ */}
           <button
-            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+            className={`${iconBtn} text-gray-700`}
             disabled={p.selectedCount === 0}
             onClick={p.onSequentialStart}
             title="選択したタスクに、見積を積み上げて連続の開始予定時刻を設定"
+            aria-label="連続開始時刻を設定"
           >
-            ⏱ 連続時刻 ({p.selectedCount})
+            ⏱
+            {p.selectedCount > 0 && <span className={badgeCls}>{p.selectedCount}</span>}
           </button>
           <button
-            className="rounded border border-indigo-300 bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-700 hover:bg-indigo-100 disabled:border-gray-300 disabled:bg-white disabled:text-gray-400"
+            className={`${iconBtn} text-gray-700`}
             disabled={p.selectedCount === 0}
             onClick={p.onBulkEdit}
             title="選択したタスクの項目(日付・期限・カテゴリ・重要度・区分)をまとめて変更"
+            aria-label="一括編集"
           >
-            ✏️ 一括編集 ({p.selectedCount})
+            ✏️
+            {p.selectedCount > 0 && <span className={badgeCls}>{p.selectedCount}</span>}
           </button>
           <button
-            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100 disabled:opacity-40"
+            className={`${iconBtn} text-gray-700`}
             // 登録中は無効化して連打による二重登録を防ぐ(Issue #29)
             disabled={p.selectedCount === 0 || p.syncingCalendar}
             onClick={p.onSyncCalendar}
             title="選択した予定(開始時刻あり)をGoogleカレンダーへ登録/更新。時刻なしはスキップ"
+            aria-label={p.syncingCalendar ? "カレンダー登録中" : "カレンダー登録"}
           >
-            {p.syncingCalendar ? "📅 登録中…" : `📅 カレンダー登録 (${p.selectedCount})`}
+            {p.syncingCalendar ? "⏳" : "📅"}
+            {p.selectedCount > 0 && <span className={badgeCls}>{p.selectedCount}</span>}
           </button>
-          {/* 一括削除(#43): 選択が1件以上のときだけ表示。スマホからも複数まとめて削除できる */}
-          {p.selectedCount > 0 && (
-            <button
-              className="rounded border border-red-300 bg-white px-3 py-1.5 text-sm font-semibold text-red-600 hover:bg-red-50"
-              onClick={p.onDeleteSelected}
-              title="選択したタスクをまとめて削除"
-            >
-              🗑 選択を削除 ({p.selectedCount})
-            </button>
-          )}
+          <button
+            className={`${iconBtn} text-red-600`}
+            disabled={p.selectedCount === 0}
+            onClick={p.onDeleteSelected}
+            title="選択したタスクをまとめて削除"
+            aria-label="選択を削除"
+          >
+            🗑
+            {p.selectedCount > 0 && <span className={`${badgeCls} bg-red-600`}>{p.selectedCount}</span>}
+          </button>
+
+          <span className={toolDivider} aria-hidden />
           {/* バックアップ異常の警告(Issue #20)。異常時だけ出す。押すと💾メニューへ。
               スヌーズ中は控えめな「停止中」表示にする */}
           {backupNeedsAttention(p.backup) &&
             (Date.now() < p.backup.snoozedUntil ? (
               <button
-                className="rounded border border-gray-300 bg-gray-50 px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-100"
+                className={`${iconBtn} text-gray-500`}
                 onClick={() => setDataMenuOpen(true)}
                 title={`バックアップ警告を停止中(${fmtClock(p.backup.snoozedUntil)}まで)。押すと詳細`}
+                aria-label="バックアップ警告(停止中)"
               >
-                💤 バックアップ
+                💤
               </button>
             ) : (
               <button
-                className="rounded border border-amber-400 bg-amber-50 px-2 py-1.5 text-sm font-semibold text-amber-800 hover:bg-amber-100"
+                className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded border border-amber-400 bg-amber-50 text-base leading-none text-amber-800 transition-colors hover:bg-amber-100"
                 onClick={() => setDataMenuOpen(true)}
                 title="自動バックアップが動いていません。押すと詳細と対処"
+                aria-label="バックアップ未実行"
               >
-                ⚠ バックアップ未実行
+                ⚠
               </button>
             ))}
           <div className="relative" ref={dataMenuRef}>
           <button
-            className="rounded border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-100"
+            className={`${iconBtn} text-gray-700`}
             onClick={() => setDataMenuOpen((o) => !o)}
             title="データのエクスポート/インポート"
+            aria-label="データメニュー"
           >
-            💾 ▾
+            💾
           </button>
           {/* データメニュー(エクスポート/インポート/自動バックアップ)。Issue #12
               外側クリック・Esc で閉じる(useDismiss)。fixed の背景は使えない事情はそちらのコメント参照 */}
