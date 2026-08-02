@@ -6,6 +6,7 @@ import { DERIVED_STATUS_LABELS } from "../types";
 import { formatDateJa, formatMin } from "../lib/date";
 import { actMin, derivedStatus, planEnd } from "../lib/logic";
 import TaskActions, { type TaskActionHandlers } from "./TaskActions";
+import { parseLink } from "../lib/link";
 import {
   deadlineTextClass,
   importanceBadgeClass,
@@ -22,6 +23,8 @@ interface Props extends TaskActionHandlers {
   /** キーボードカーソル位置のタスクID */
   focusedId: string | null;
   onFocusTask: (id: string) => void;
+  /** ローカルパスのリンクをクリップボードへコピー(#45) */
+  onCopyPath?: (path: string) => void;
 }
 
 export default function TaskCards({
@@ -30,6 +33,7 @@ export default function TaskCards({
   onToggleWait,
   focusedId,
   onFocusTask,
+  onCopyPath,
   ...handlers
 }: Props) {
   if (tasks.length === 0) {
@@ -123,17 +127,33 @@ export default function TaskCards({
               </div>
               {t.links.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-2 text-xs">
-                  {t.links.map((url, i) => (
-                    <a
-                      key={i}
-                      href={url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="max-w-56 truncate text-blue-500 hover:underline"
-                    >
-                      🔗 {url}
-                    </a>
-                  ))}
+                  {t.links.map((url, i) => {
+                    const link = parseLink(url);
+                    if (link.kind === "local") {
+                      return (
+                        <button
+                          key={i}
+                          type="button"
+                          className="max-w-56 truncate text-gray-600 hover:opacity-70"
+                          title={`${link.display}\n(クリックでパスをコピー→エクスプローラに貼り付け)`}
+                          onClick={() => onCopyPath?.(link.value)}
+                        >
+                          {link.isFile ? "📄" : "📁"} {link.display}
+                        </button>
+                      );
+                    }
+                    return (
+                      <a
+                        key={i}
+                        href={link.value}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="max-w-56 truncate text-blue-500 hover:underline"
+                      >
+                        🔗 {link.display}
+                      </a>
+                    );
+                  })}
                 </div>
               )}
               {t.memos.some((m) => m) && (

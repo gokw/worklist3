@@ -13,6 +13,7 @@ import { actMin, collectCategories, derivedStatus, planEnd } from "../lib/logic"
 import TaskActions, { type TaskActionHandlers } from "./TaskActions";
 import EditableCell, { type FinishReason } from "./EditableCell";
 import CategoryInput from "./CategoryInput";
+import { parseLink } from "../lib/link";
 import {
   deadlineTextClass,
   importanceBadgeClass,
@@ -66,6 +67,8 @@ interface Props extends TaskActionHandlers {
   /** セルへフォーカス(行ID＋項目を同時に更新) */
   onFocusCell: (id: string, field: EditableField) => void;
   onFocusTask: (id: string) => void;
+  /** ローカルパスのリンクをクリップボードへコピー(#45) */
+  onCopyPath: (path: string) => void;
   /** 編集中セル(App が保持し、キーボードからも開始できるよう制御化) */
   editing: EditingCell;
   onEditingChange: (e: EditingCell) => void;
@@ -184,6 +187,7 @@ export default function TaskTable({
   focusedField,
   onFocusCell,
   onFocusTask,
+  onCopyPath,
   editing,
   onEditingChange,
   dense = false,
@@ -450,19 +454,39 @@ export default function TaskTable({
                       {t.parentId && <span className="text-gray-400">└ </span>}
                       {t.title || <span className="text-gray-300">(無題)</span>}
                     </span>
-                    {t.links.map((url, i) => (
-                      <a
-                        key={i}
-                        href={url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="ml-1 shrink-0 text-blue-500 hover:underline"
-                        title={url}
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        🔗
-                      </a>
-                    ))}
+                    {t.links.map((url, i) => {
+                      const link = parseLink(url);
+                      // ローカルパスはブラウザから開けないため、クリックでパスをコピー(#45)
+                      if (link.kind === "local") {
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            className="ml-1 shrink-0 hover:opacity-70"
+                            title={`${link.display}\n(クリックでパスをコピー→エクスプローラに貼り付け)`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCopyPath(link.value);
+                            }}
+                          >
+                            {link.isFile ? "📄" : "📁"}
+                          </button>
+                        );
+                      }
+                      return (
+                        <a
+                          key={i}
+                          href={link.value}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="ml-1 shrink-0 text-blue-500 hover:underline"
+                          title={link.display}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          🔗
+                        </a>
+                      );
+                    })}
                     {t.memos.some((m) => m) && (
                       <span
                         className="ml-1 shrink-0 cursor-help text-gray-400"

@@ -820,6 +820,23 @@ export default function App() {
   }, [visibleTasks, showToast]);
 
   /**
+   * ローカルパス(フォルダ/ファイル)をクリップボードへコピーする(#45)。
+   * ブラウザは https 由来の file:// を開けないため、コピー→エクスプローラのアドレス欄へ
+   * 貼り付けてもらう運用にする(安全側)。
+   */
+  const handleCopyPath = useCallback(
+    async (path: string) => {
+      try {
+        await navigator.clipboard.writeText(path);
+        showToast("パスをコピーしました。エクスプローラのアドレス欄に貼り付けてください");
+      } catch {
+        showToast("クリップボードにコピーできませんでした");
+      }
+    },
+    [showToast]
+  );
+
+  /**
    * 選択したタスクをGoogleカレンダーへ登録/更新する(手動upsert・deleteはしない)。
    * 認証はこのボタン押下(ユーザー操作)を起点にする。成功分の gcalEventId を保存し、
    * 結果はダイアログで件数報告する。予定でないもの(時刻なし)は黙ってスキップ。
@@ -1624,6 +1641,7 @@ export default function App() {
           focusedField={focusedField}
           onFocusCell={onFocusCell}
           onFocusTask={focusRow}
+          onCopyPath={handleCopyPath}
           editing={editingCell}
           onEditingChange={setEditingCell}
           {...actionHandlers}
