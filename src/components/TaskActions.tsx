@@ -22,8 +22,9 @@ interface Props extends TaskActionHandlers {
 
 const btn =
   "rounded px-1.5 py-0.5 text-xs font-semibold border transition-colors whitespace-nowrap";
+// コンパクト(表ライト)は固定幅18pxの正方形に詰め、5個でも操作列に必ず1行で収める(#43)
 const btnCompact =
-  "rounded px-0.5 leading-none text-[13px] border border-transparent transition-colors whitespace-nowrap";
+  "inline-flex w-[18px] shrink-0 items-center justify-center rounded leading-none text-[13px] border border-transparent transition-colors";
 
 export default function TaskActions({
   task,
@@ -42,7 +43,7 @@ export default function TaskActions({
   const label = (icon: string, text: string) => (compact ? icon : `${icon} ${text}`);
 
   return (
-    <span className={`inline-flex flex-wrap items-center ${compact ? "gap-0" : "gap-1"}`}>
+    <span className={`inline-flex flex-nowrap items-center whitespace-nowrap ${compact ? "gap-0" : "gap-1"}`}>
       {!running && !done && (
         <button
           className={`${base} ${
