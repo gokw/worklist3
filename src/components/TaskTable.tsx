@@ -346,19 +346,20 @@ export default function TaskTable({
                       type="checkbox"
                       className={dense ? "h-3 w-3" : ""}
                       checked={selectedIds.includes(t.id)}
-                      onChange={() => {}}
-                      // 選択は onClick で自前処理(既定トグルは止めて二重処理を防ぐ)
-                      // Shift+クリック=範囲選択 / 通常クリック=トグル
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        e.preventDefault();
-                        if (e.shiftKey) onRangeSelectTo(t.id);
+                      // 選択トグルは onChange で行う。controlled な checked と確実に同期させ、
+                      // 「選択されているのにチェックが入らない/ずれる」不具合を防ぐ(Issue #42)。
+                      // checkbox の onChange は click 由来なので nativeEvent から shiftKey を取れる。
+                      onChange={(e) => {
+                        const ne = e.nativeEvent as MouseEvent;
+                        if (ne.shiftKey) onRangeSelectTo(t.id);
                         else onToggleSelect(t.id);
-                        // マウスクリック時はフォーカスをチェックボックスに残さない。
+                        // マウス操作後はフォーカスを残さない。
                         // 残すとwindowのショートカットがINPUTガードで無視される(Issue #26)。
-                        // e.detail>0 はマウス由来のクリック。キーボード操作(detail=0)は巻き込まない。
-                        if (e.detail > 0) e.currentTarget.blur();
+                        // detail>0 はマウス由来。キーボード操作(Space, detail=0)は巻き込まない。
+                        if (ne.detail > 0) e.currentTarget.blur();
                       }}
+                      // 行クリック(フォーカス移動)への伝播だけ止める。既定のトグルは止めない。
+                      onClick={(e) => e.stopPropagation()}
                       title="クリックで選択 / Shift+クリックで範囲選択"
                     />
                     {selectedIds.includes(t.id) && (
