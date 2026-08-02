@@ -127,6 +127,8 @@ interface Props {
   onSnoozeBackup: (minutes: number) => void;
   onClearBackupSnooze: () => void;
   totals: { estimate: number; actual: number; remain: number };
+  /** ショートカット一覧(=最終更新日)を開く。スマホは?キーが無いのでボタンで開けるように(Issue #41) */
+  onOpenHelp: () => void;
 }
 
 const chip = (active: boolean) =>
@@ -166,7 +168,16 @@ export default function Toolbar(p: Props) {
     <div className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 px-4 py-2 shadow-sm backdrop-blur">
       {/* 1段目: 日付ナビ + 集計 + 主要ボタン */}
       <div className="flex flex-wrap items-center gap-2">
-        <h1 className="mr-2 text-lg font-bold text-gray-800">worklist3</h1>
+        <h1 className="text-lg font-bold text-gray-800">worklist3</h1>
+        <button
+          type="button"
+          onClick={p.onOpenHelp}
+          title="ショートカット一覧・最終更新日(?キーでも開く)"
+          aria-label="ショートカット一覧・最終更新日"
+          className="mr-1 flex h-6 w-6 items-center justify-center rounded-full border border-gray-300 text-xs font-bold text-gray-500 hover:bg-gray-100"
+        >
+          ?
+        </button>
 
         {/* 日付ナビは「今日」ビューのときだけ(特定日を見る用) */}
         {p.viewMode === "today" && (

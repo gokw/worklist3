@@ -1594,6 +1594,7 @@ export default function App() {
         onSnoozeBackup={snoozeBackupWarning}
         onClearBackupSnooze={clearBackupSnooze}
         totals={totals}
+        onOpenHelp={() => setHelpOpen(true)}
       />
 
       {/* 表示形式は「表ライト」のみ。カード形式(TaskCards)は一覧から外した(types.ts 参照)。
@@ -1624,11 +1625,6 @@ export default function App() {
           {...actionHandlers}
         /> */}
 
-        {/* 一覧をベタ書きするのはやめ、?キーのヘルプへ寄せた(ShortcutHelpDialog) */}
-        <p className="mt-4 text-center text-[11px] text-gray-400">
-          <kbd className="rounded border border-gray-300 bg-gray-50 px-1 font-mono">?</kbd>{" "}
-          でショートカットキー一覧
-        </p>
       </main>
 
       {/* ダイアログ類 */}

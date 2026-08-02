@@ -39,6 +39,23 @@ const GLOBAL_KEYS: [string, string][] = [
   ["Esc", "ダイアログ・セル編集を閉じる(複数選択中は選択を解除)"],
 ];
 
+// ビルド時に埋め込んだ最終更新日を、日本時間の YYYY-MM-DD に整形する(Issue #41)。
+// ビルドはGitHub(UTC)で走るため、必ずJSTへ変換して日付ズレを防ぐ。
+const LAST_UPDATED = (() => {
+  try {
+    const d = new Date(__BUILD_DATE__);
+    const ymd = d.toLocaleDateString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    });
+    return `${ymd} (${__BUILD_HASH__})`;
+  } catch {
+    return __BUILD_HASH__;
+  }
+})();
+
 function KeyRow({ k, desc }: { k: string; desc: string }) {
   return (
     <div className="flex items-baseline gap-3 py-0.5">
@@ -97,6 +114,11 @@ export default function ShortcutHelpDialog({ onClose }: Props) {
             </p>
           </div>
         </div>
+
+        {/* 最終更新日(Issue #41)。push→自動デプロイのたびに自動更新される */}
+        <p className="mt-4 border-t border-gray-100 pt-2 text-right text-[11px] text-gray-400">
+          最終更新: {LAST_UPDATED}
+        </p>
       </div>
     </div>
   );
