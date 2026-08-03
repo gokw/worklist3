@@ -1454,11 +1454,13 @@ export default function App() {
           else moveFocus(-1);
           break;
         case "arrowleft": // 表: 左の列へ(Excel風セル移動)Issue #5
+        case "h": // 表: 左の列へ(vim準拠。j/k=行 と合わせて h/j/k/l でセル移動)
           if (layout === "cards") break;
           e.preventDefault();
           moveColumn(-1);
           break;
         case "arrowright": // 表: 右の列へ
+        case "l": // 表: 右の列へ(vim準拠)
           if (layout === "cards") break;
           e.preventDefault();
           moveColumn(1);
