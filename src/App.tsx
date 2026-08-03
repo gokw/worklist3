@@ -178,10 +178,10 @@ export default function App() {
   );
   const undoTimer = useRef<number | undefined>(undefined);
   /**
-   * H/Lで日付を動かしている間の「見た目の並び固定」(Issue #14 追加)。
+   * Ctrl+H/K/Lで日付を動かしている間の「見た目の並び固定」(Issue #14 追加)。
    * order = ずらす前の表示順のid列。窓が閉じるまでこの順で描画し、閉じたら整列＋中央寄せ。
    */
-  // H/L の日付移動セッション。key=窓の識別(単体はタスクID / 一括は "bulk")、
+  // 日付移動(Ctrl+H/K/L)のセッション。key=窓の識別(単体はタスクID / 一括は "bulk")、
   // order=ずらす前の並び(固定表示用)、focusId=開始時のカーソル(離れたら整列)。
   const [dateShift, setDateShift] = useState<{
     key: string;
@@ -240,7 +240,7 @@ export default function App() {
   // ---------- undo(単段・自動確定)。Issue #14 ----------
   /**
    * 保留中のundoを確定(=もう戻せない)。あらゆる変更操作の頭で呼び、直前分を確定する。
-   * H/Lの並び固定セッションも一緒に終わらせ(=整列に戻る)、undoトーストも下げる。
+   * 日付移動(Ctrl+H/K/L)の並び固定セッションも一緒に終わらせ(=整列に戻る)、undoトーストも下げる。
    */
   const commitPendingUndo = useCallback(() => {
     pendingUndo.current = null;
@@ -262,7 +262,7 @@ export default function App() {
 
   /**
    * 操作の直前に呼ぶ。直前のundoを確定し、今の状態をスナップショットして窓を開く。
-   * autoExpire=false のときは窓の自動失効を張らない(H/Lは自前のタイマで管理する)。
+   * autoExpire=false のときは窓の自動失効を張らない(日付移動は自前のタイマで管理する)。
    */
   const pushUndo = useCallback(
     (label: string, autoExpire = true) => {
@@ -273,7 +273,7 @@ export default function App() {
     [commitPendingUndo, armUndoWindow]
   );
 
-  /** H/Lの並び固定だけ畳む(undo/redoスナップショットは保持したいので commit は使わない) */
+  /** 日付移動(Ctrl+H/K/L)の並び固定だけ畳む(undo/redoスナップショットは保持したいので commit は使わない) */
   const collapseDateShift = useCallback(() => {
     window.clearTimeout(dateShiftTimer.current);
     setDateShift(null);
@@ -424,7 +424,7 @@ export default function App() {
     if (categoryFilter) list = list.filter((t) => t.category === categoryFilter);
     // 5. タスク名
     if (titleMatcher) list = list.filter((t) => titleMatcher(t.title));
-    // H/Lで日付を動かしている間は、見た目の並びを「ずらす前の順」に固定する(Issue #14)。
+    // 日付移動(Ctrl+H/K/L)で日付を動かしている間は、見た目の並びを「ずらす前の順」に固定する(Issue #14)。
     // 窓が閉じたら dateShift が null に戻り、下の通常の並べ替えに切り替わる。
     if (dateShift) {
       const pos = new Map(dateShift.order.map((id, i) => [id, i] as const));
@@ -502,7 +502,7 @@ export default function App() {
   );
 
   /**
-   * H/Lの並び固定を終了する(Issue #14)。commitPendingUndo が固定解除＋undo確定を行う。
+   * 日付移動(Ctrl+H/K/L)の並び固定を終了する(Issue #14)。commitPendingUndo が固定解除＋undo確定を行う。
    * center=true(窓が閉じた)なら、そのタスクを画面へ寄せる。ただし期間外へ動かして
    * 一覧から消える場合は、隣の行へカーソルを送る(Issue #31)。
    * center=false(途中でカーソルが別行へ動いた)なら、整列だけしてカーソルに追従させる。
@@ -1199,15 +1199,25 @@ export default function App() {
     [visibleTasks, focusedId]
   );
 
-  // ---------- 日付を前後(h/l キー。Issue #7 / Excel NextDay・PreviousDay 相当)----------
+  // ---------- 日付移動(Ctrl+H/K/L。Issue #7 / #54 / Excel NextDay・PreviousDay 相当)----------
   // 複数選択があれば選択タスクをまとめて移動する(Issue #23)。無ければカーソルの1件。
-  const shiftFocusedDate = useCallback(
-    (delta: number) => {
-      const targets =
+  // 日付移動(Ctrl+H=前日 / Ctrl+L=翌日 / Ctrl+K=今日。Issue #54)。
+  // 相対移動(prev/next)と絶対移動(today)を1本にまとめる。挙動(複数選択のまとめ移動・
+  // undo・並び固定の窓・カーソル追従)は3操作で共通。
+  const moveFocusedDate = useCallback(
+    (mode: "prev" | "next" | "today") => {
+      const pool =
         selectedIds.length > 0
           ? visibleTasks.filter((t) => selectedIds.includes(t.id))
           : visibleTasks.filter((t) => t.id === focusedId);
-      if (targets.length === 0) return;
+      if (pool.length === 0) return;
+      const today = todayStr();
+      // 「今日へ」は既に今日のタスクを除外(動かす必要がないので何もしない)
+      const targets = mode === "today" ? pool.filter((t) => (t.date ?? today) !== today) : pool;
+      if (targets.length === 0) {
+        showToast("すでに今日です");
+        return;
+      }
       const bulk = targets.length > 1;
       const key = bulk ? "bulk" : targets[0].id;
       // 同じ対象を続けて動かしているときは、まとめて1つのundo・並びも固定のまま(連打対応)。
@@ -1220,13 +1230,17 @@ export default function App() {
       const now = new Date().toISOString();
       const moved = targets.map((t) => ({
         ...t,
-        date: addToDate(t.date ?? todayStr(), "day", delta),
+        date:
+          mode === "today"
+            ? today
+            : addToDate(t.date ?? today, "day", mode === "next" ? 1 : -1),
         updatedAt: now,
       }));
       upsert(moved);
+      const dest = mode === "today" ? "今日" : mode === "next" ? "翌日" : "前日";
       showToast(
         bulk
-          ? `${moved.length}件を${delta > 0 ? "翌日" : "前日"}へ`
+          ? `${moved.length}件を${dest}へ`
           : `${moved[0].title || "(無題)"} → ${formatDateJa(moved[0].date as string)}`,
         true
       );
@@ -1240,7 +1254,7 @@ export default function App() {
     [dateShift, visibleTasks, focusedId, selectedIds, upsert, showToast, pushUndo, endDateShift]
   );
 
-  // H/Lの固定中にカーソルが別タスクへ動いたら、整列してカーソルに追従する(中央寄せはしない)
+  // 日付移動(Ctrl+H/K/L)の固定中にカーソルが別タスクへ動いたら、整列してカーソルに追従する(中央寄せはしない)
   useEffect(() => {
     if (dateShift && focusedId !== dateShift.focusId) endDateShift(false);
   }, [focusedId, dateShift, endDateShift]);
@@ -1337,10 +1351,19 @@ export default function App() {
         return;
       }
 
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        openNewForm();
-        return;
+      // 日付移動は Ctrl 系に集約(Issue #54): Ctrl+H=前日 / Ctrl+K=今日 / Ctrl+L=翌日。
+      // ブラウザ既定(履歴/検索/アドレスバー)より優先するため preventDefault。
+      // ただし対象タスクが無いときは既定に委ねる。(focused は後段で算出するのでここでは自前判定)
+      if (e.ctrlKey || e.metaKey) {
+        const ck = e.key.toLowerCase();
+        if (ck === "h" || ck === "k" || ck === "l") {
+          const hasTarget =
+            selectedIds.length > 0 || visibleTasks.some((t) => t.id === focusedId);
+          if (!hasTarget) return;
+          e.preventDefault();
+          moveFocusedDate(ck === "h" ? "prev" : ck === "l" ? "next" : "today");
+          return;
+        }
       }
       // Ctrl/⌘+Z: 直前の操作を元に戻す(単段・自動確定。Issue #14)
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && e.key.toLowerCase() === "z") {
@@ -1452,16 +1475,6 @@ export default function App() {
           e.preventDefault();
           moveFocus(-5);
           break;
-        case "h": // 日付を前日へ(複数選択中はまとめて。Issue #7 / #23)
-          if (!focused && selectedIds.length === 0) break;
-          e.preventDefault();
-          shiftFocusedDate(-1);
-          break;
-        case "l": // 日付を翌日へ(複数選択中はまとめて)
-          if (!focused && selectedIds.length === 0) break;
-          e.preventDefault();
-          shiftFocusedDate(1);
-          break;
         case "s": // 開始/再開(Excel版 StartTask)
           if (!focused) break;
           e.preventDefault();
@@ -1540,7 +1553,7 @@ export default function App() {
     moveFocus,
     moveColumn,
     extendSelection,
-    shiftFocusedDate,
+    moveFocusedDate,
     jumpCategoryGroup,
     jumpToCurrent,
     selectedIds,
