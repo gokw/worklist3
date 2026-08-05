@@ -1688,6 +1688,7 @@ export default function App() {
         onClearBackupSnooze={clearBackupSnooze}
         totals={totals}
         onOpenHelp={() => setHelpOpen(true)}
+        readOnly={!isPrimary}
       />
 
       {/* 読み取り専用バナー(#57): 別窓で編集中のとき。ここで編集すると他窓の変更を
@@ -1725,6 +1726,7 @@ export default function App() {
           onCopyPath={handleCopyPath}
           editing={editingCell}
           onEditingChange={setEditingCell}
+          readOnly={!isPrimary}
           {...actionHandlers}
         />
         {/* <TaskCards
