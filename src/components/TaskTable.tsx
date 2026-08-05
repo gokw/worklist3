@@ -74,6 +74,8 @@ interface Props extends TaskActionHandlers {
   onEditingChange: (e: EditingCell) => void;
   /** 表形式ライト(高密度)。Issue #10 */
   dense?: boolean;
+  /** 読み取り専用(別窓が書き手のとき)。編集系の操作を無効化する。#57 */
+  readOnly?: boolean;
 }
 
 // 見出し(dense はExcel流に圧縮)。並びは Issue #11:
@@ -191,6 +193,7 @@ export default function TaskTable({
   editing,
   onEditingChange,
   dense = false,
+  readOnly = false,
   ...handlers
 }: Props) {
   // 密度でクラスを切替(通常: 余白広め / ライト: Excel並みの詰め込み)
@@ -210,6 +213,7 @@ export default function TaskTable({
 
   const startEdit = (id: string, field: EditableField) => {
     onFocusCell(id, field);
+    if (readOnly) return; // 読み取り専用ではセル編集を開始しない(カーソル移動だけ許す)。#57
     onEditingChange({ id, field });
   };
 
@@ -349,6 +353,7 @@ export default function TaskTable({
                     <input
                       type="checkbox"
                       className={dense ? "h-3 w-3" : ""}
+                      disabled={readOnly}
                       checked={selectedIds.includes(t.id)}
                       // 選択トグルは onChange で行う。controlled な checked と確実に同期させ、
                       // 「選択されているのにチェックが入らない/ずれる」不具合を防ぐ(Issue #42)。
@@ -391,7 +396,8 @@ export default function TaskTable({
                 {/* ステータス(待ちトグル)。ライトは1文字 */}
                 <td className={td}>
                   <button
-                    className={`rounded font-semibold ${statusBadgeClass(st)} ${
+                    disabled={readOnly}
+                    className={`rounded font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${statusBadgeClass(st)} ${
                       dense ? "px-1 text-[11px] leading-tight" : "px-2 py-0.5 text-xs"
                     }`}
                     title={
@@ -543,7 +549,7 @@ export default function TaskTable({
 
                 {/* 操作 */}
                 <td className={td} onClick={(e) => e.stopPropagation()}>
-                  <TaskActions task={t} compact={dense} {...handlers} />
+                  <TaskActions task={t} compact={dense} readOnly={readOnly} {...handlers} />
                 </td>
               </tr>
             );

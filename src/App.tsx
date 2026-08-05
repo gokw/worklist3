@@ -42,6 +42,13 @@ import {
   subscribeBackup,
 } from "./lib/backup";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
+import {
+  getWriterState,
+  requestTakeover,
+  setOnPromote,
+  startWriterLock,
+  subscribeWriter,
+} from "./lib/writerLock";
 import Toolbar from "./components/Toolbar";
 import TaskTable, {
   EDIT_ORDER,
@@ -149,6 +156,12 @@ export default function App() {
    */
   const [toast, setToast] = useState<{ text: string; action: "undo" | "redo" | null } | null>(null);
   const [backupState, setBackupState] = useState<BackupState>(getBackupState);
+  /** 単一書き手ロック(#57): この窓が書き手(編集可)か。false=読み取り専用 */
+  const [isPrimary, setIsPrimary] = useState<boolean>(() => getWriterState().isPrimary);
+  /** 保存useEffectなど同期的に判定したい箇所のための最新値 */
+  const isPrimaryRef = useRef(isPrimary);
+  /** 起動直後の読み取り専用フラッシュでバナーが点滅しないよう、少し待ってからUIを出す(#57 §5-D) */
+  const [roleSettled, setRoleSettled] = useState(false);
   const toastTimer = useRef<number | undefined>(undefined);
   /** 起動時1回だけ走る副作用から最新のタスクを見るための控え */
   const tasksRef = useRef(tasks);
@@ -194,6 +207,9 @@ export default function App() {
   // 同期フォルダへの控えはデバウンス付きの非同期なので、この主経路は止めない
   useEffect(() => {
     tasksRef.current = tasks;
+    // 読み取り専用の窓は localStorage にもバックアップにも一切書かない(#57 §4.3)。
+    // これが「古いスナップショットによる後勝ち上書き=巻き戻り」を止める最終防衛線。
+    if (!isPrimaryRef.current) return;
     repository.save(tasks);
     notifyTasksChanged(tasks);
   }, [tasks]);
@@ -236,6 +252,13 @@ export default function App() {
     window.clearTimeout(toastTimer.current);
     toastTimer.current = window.setTimeout(() => setToast(null), UNDO_WINDOW_MS);
   }, []);
+
+  /** 読み取り専用の窓で編集操作を弾く。編集系ハンドラの先頭で呼ぶ(#57 §4.5)。 */
+  const ensureWritable = useCallback(() => {
+    if (isPrimaryRef.current) return true;
+    showToast("この窓は読み取り専用です。上部の〔この窓で編集〕で切り替えてください");
+    return false;
+  }, [showToast]);
 
   // ---------- undo(単段・自動確定)。Issue #14 ----------
   /**
@@ -281,6 +304,7 @@ export default function App() {
 
   // Ctrl+Z: 操作前へ戻す。戻す直前の状態(操作後)は Ctrl+Y 用に控える(Issue #39)
   const performUndo = useCallback(() => {
+    if (!ensureWritable()) return;
     const u = pendingUndo.current;
     if (!u) {
       showToast("元に戻せる操作がありません");
@@ -300,10 +324,11 @@ export default function App() {
     setAnchorId(u.focusedId);
     armUndoWindow();
     showUndoToast(`元に戻しました: ${u.label}`, "redo");
-  }, [showToast, showUndoToast, collapseDateShift, armUndoWindow]);
+  }, [showToast, showUndoToast, collapseDateShift, armUndoWindow, ensureWritable]);
 
   // Ctrl+Y: 直前の Ctrl+Z を取り消して操作後の状態へ戻す(やり直し。Issue #39)
   const performRedo = useCallback(() => {
+    if (!ensureWritable()) return;
     const r = pendingRedo.current;
     if (!r) {
       showToast("やり直す操作がありません");
@@ -315,7 +340,7 @@ export default function App() {
     setAnchorId(r.focusedId);
     armUndoWindow();
     showUndoToast(`やり直しました: ${r.label}`, "undo");
-  }, [showToast, showUndoToast, collapseDateShift, armUndoWindow]);
+  }, [showToast, showUndoToast, collapseDateShift, armUndoWindow, ensureWritable]);
 
   // endDateShift は visibleTasks 依存の armRefocusIfLeaves を使うため、その定義の後に置く(下方)。
 
@@ -327,23 +352,60 @@ export default function App() {
     return unsubscribe;
   }, [showToast]);
 
-  // ---------- 更新ヘルパー ----------
-  const upsert = useCallback((updated: Task[]) => {
-    setTasks((prev) => {
-      const map = new Map(prev.map((t) => [t.id, t]));
-      for (const t of updated) map.set(t.id, t);
-      return [...map.values()];
+  // 単一書き手ロック(多重起動の巻き戻り防止。#57)。起動時1回。
+  //   昇格(書き手になった)瞬間に、陳腐化した自メモリを捨てて localStorage から読み直す。
+  //   引き継ぎ(他窓から譲られた)ときだけ利用者に知らせる(初回取得では黙って編集可にする)。
+  useEffect(() => {
+    setOnPromote((isHandover) => {
+      setTasks(repository.load());
+      if (isHandover) showToast("この窓で編集できるようになりました");
     });
+    const unsubscribe = subscribeWriter((s) => {
+      isPrimaryRef.current = s.isPrimary;
+      setIsPrimary(s.isPrimary);
+    });
+    void startWriterLock();
+    return unsubscribe;
+  }, [showToast]);
+
+  // 起動直後の一瞬(ロック取得が確定するまで)は読み取り専用に見えるため、
+  // すぐにバナーを出すと単独窓で点滅する。少し待って本当に secondary のときだけ出す。
+  useEffect(() => {
+    const t = window.setTimeout(() => setRoleSettled(true), 600);
+    return () => window.clearTimeout(t);
   }, []);
 
-  const remove = useCallback((id: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-  }, []);
+  // ---------- 更新ヘルパー ----------
+  // すべてのタスク変更はこの3つ(upsert/remove/removeMany)を通る。読み取り専用の窓では
+  // ここで弾くことで、キーボード・ボタン・ダイアログ・インライン編集のどの経路でも変更させない(#57)。
+  const upsert = useCallback(
+    (updated: Task[]) => {
+      if (!ensureWritable()) return;
+      setTasks((prev) => {
+        const map = new Map(prev.map((t) => [t.id, t]));
+        for (const t of updated) map.set(t.id, t);
+        return [...map.values()];
+      });
+    },
+    [ensureWritable]
+  );
 
-  const removeMany = useCallback((ids: string[]) => {
-    const idSet = new Set(ids);
-    setTasks((prev) => prev.filter((t) => !idSet.has(t.id)));
-  }, []);
+  const remove = useCallback(
+    (id: string) => {
+      if (!ensureWritable()) return;
+      setTasks((prev) => prev.filter((t) => t.id !== id));
+    },
+    [ensureWritable]
+  );
+
+  const removeMany = useCallback(
+    (ids: string[]) => {
+      if (!ensureWritable()) return;
+      const idSet = new Set(ids);
+      setTasks((prev) => prev.filter((t) => !idSet.has(t.id)));
+    },
+    [ensureWritable]
+  );
 
   // インライン編集の保存(1件更新)。トーストを出さない=undo対象にはしないが、
   // 保留中のundoは確定して「あとから消えて驚く」事故を防ぐ(Issue #14)
@@ -845,6 +907,8 @@ export default function App() {
     // 連打・二重起動をここで弾く(ボタンのdisabledより前の最終防衛線。Issue #29)。
     // state更新は非同期なので、同期的に判定できる ref を真偽の基準にする。
     if (syncingCalendarRef.current) return;
+    // 読み取り専用の窓では gcalEventId の書き戻し(setTasks)が発生するため弾く(#57)
+    if (!ensureWritable()) return;
 
     const { clientId, calendarId } = loadGcalConfig();
     if (!clientId || !calendarId) {
@@ -889,7 +953,7 @@ export default function App() {
       syncingCalendarRef.current = false;
       setSyncingCalendar(false);
     }
-  }, [selectedIds, tasks, showToast, commitPendingUndo]);
+  }, [selectedIds, tasks, showToast, commitPendingUndo, ensureWritable]);
 
   const handleResetCalendarAuth = useCallback(() => {
     resetGcalAuth();
@@ -1639,7 +1703,25 @@ export default function App() {
         onClearBackupSnooze={clearBackupSnooze}
         totals={totals}
         onOpenHelp={() => setHelpOpen(true)}
+        readOnly={!isPrimary}
       />
+
+      {/* 読み取り専用バナー(#57): 別窓で編集中のとき。ここで編集すると他窓の変更を
+          消す事故になるため書き込みを止めている旨を示し、明示操作で書き手を引き継げる */}
+      {!isPrimary && roleSettled && (
+        <div className="flex flex-wrap items-center justify-center gap-3 border-b border-amber-200 bg-amber-100 px-4 py-1.5 text-sm text-amber-900">
+          <span>
+            👁 この窓は読み取り専用です(別のウィンドウで編集中)。巻き戻り事故を防ぐため書き込みを止めています。
+          </span>
+          <button
+            type="button"
+            onClick={() => requestTakeover()}
+            className="rounded bg-amber-600 px-3 py-1 text-xs font-semibold text-white hover:bg-amber-700"
+          >
+            この窓で編集
+          </button>
+        </div>
+      )}
 
       {/* 表示形式は「表ライト」のみ。カード形式(TaskCards)は一覧から外した(types.ts 参照)。
           戻すときは max-w の出し分けと TaskCards の分岐をここに復活させる */}
@@ -1659,6 +1741,7 @@ export default function App() {
           onCopyPath={handleCopyPath}
           editing={editingCell}
           onEditingChange={setEditingCell}
+          readOnly={!isPrimary}
           {...actionHandlers}
         />
         {/* <TaskCards

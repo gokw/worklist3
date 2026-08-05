@@ -130,6 +130,8 @@ interface Props {
   totals: { estimate: number; actual: number; remain: number };
   /** ショートカット一覧(=最終更新日)を開く。スマホは?キーが無いのでボタンで開けるように(Issue #41) */
   onOpenHelp: () => void;
+  /** 読み取り専用(別窓が書き手のとき)。作成・変更系ボタンを無効化する。#57 */
+  readOnly?: boolean;
 }
 
 const chip = (active: boolean) =>
@@ -142,7 +144,7 @@ const chip = (active: boolean) =>
 const iconBtn =
   "relative flex h-9 w-9 shrink-0 items-center justify-center rounded border border-gray-300 bg-white text-base leading-none transition-colors hover:bg-gray-100 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-white";
 const addBtn =
-  "flex h-9 w-9 shrink-0 items-center justify-center rounded border border-blue-600 bg-blue-600 text-lg font-bold leading-none text-white transition-colors hover:bg-blue-700";
+  "flex h-9 w-9 shrink-0 items-center justify-center rounded border border-blue-600 bg-blue-600 text-lg font-bold leading-none text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-gray-300";
 // 選択件数バッジ(ボタン右上に重ねる)。ボタン幅を変えないので並びがずれない。
 const badgeCls =
   "absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold leading-none text-white";
@@ -265,12 +267,19 @@ export default function Toolbar(p: Props) {
         </span>
 
         <div className="relative ml-auto flex flex-wrap items-center gap-2">
-          {/* 作成系(常時有効) */}
-          <button className={addBtn} onClick={p.onAdd} title="タスク追加(Nキー)" aria-label="タスク追加">
+          {/* 作成系(読み取り専用の窓では無効化。#57) */}
+          <button
+            className={addBtn}
+            disabled={p.readOnly}
+            onClick={p.onAdd}
+            title="タスク追加(Nキー)"
+            aria-label="タスク追加"
+          >
             ＋
           </button>
           <button
             className={`${iconBtn} text-gray-700`}
+            disabled={p.readOnly}
             onClick={p.onClipboardImport}
             title="クリップボードからTeams/予定/テキストを自動判別して取込(Vキー)"
             aria-label="クリップボードから取込"
@@ -279,6 +288,7 @@ export default function Toolbar(p: Props) {
           </button>
           <button
             className={`${iconBtn} text-gray-700`}
+            disabled={p.readOnly}
             onClick={p.onBulkAdd}
             title="テキストを貼り付けて複数タスクを一括登録"
             aria-label="一括登録"
@@ -287,6 +297,7 @@ export default function Toolbar(p: Props) {
           </button>
           <button
             className={`${iconBtn} text-gray-700`}
+            disabled={p.readOnly}
             onClick={p.onRandomStart}
             title="今日のタスクからランダムに1件開始"
             aria-label="ランダムに1件開始"
@@ -299,7 +310,7 @@ export default function Toolbar(p: Props) {
           {/* 選択が必要な操作(#43): 未選択時は無効(グレーアウト)にして常時表示。件数は右上バッジ */}
           <button
             className={`${iconBtn} text-gray-700`}
-            disabled={p.selectedCount === 0}
+            disabled={p.readOnly || p.selectedCount === 0}
             onClick={p.onSequentialStart}
             title="選択したタスクに、見積を積み上げて連続の開始予定時刻を設定"
             aria-label="連続開始時刻を設定"
@@ -309,7 +320,7 @@ export default function Toolbar(p: Props) {
           </button>
           <button
             className={`${iconBtn} text-gray-700`}
-            disabled={p.selectedCount === 0}
+            disabled={p.readOnly || p.selectedCount === 0}
             onClick={p.onBulkEdit}
             title="選択したタスクの項目(日付・期限・カテゴリ・重要度・区分)をまとめて変更"
             aria-label="一括編集"
@@ -320,7 +331,7 @@ export default function Toolbar(p: Props) {
           <button
             className={`${iconBtn} text-gray-700`}
             // 登録中は無効化して連打による二重登録を防ぐ(Issue #29)
-            disabled={p.selectedCount === 0 || p.syncingCalendar}
+            disabled={p.readOnly || p.selectedCount === 0 || p.syncingCalendar}
             onClick={p.onSyncCalendar}
             title="選択した予定(開始時刻あり)をGoogleカレンダーへ登録/更新。時刻なしはスキップ"
             aria-label={p.syncingCalendar ? "カレンダー登録中" : "カレンダー登録"}
@@ -330,7 +341,7 @@ export default function Toolbar(p: Props) {
           </button>
           <button
             className={`${iconBtn} text-red-600`}
-            disabled={p.selectedCount === 0}
+            disabled={p.readOnly || p.selectedCount === 0}
             onClick={p.onDeleteSelected}
             title="選択したタスクをまとめて削除"
             aria-label="選択を削除"
