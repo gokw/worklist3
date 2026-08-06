@@ -1800,13 +1800,11 @@ export default function App() {
         <TimeInputDialog
           title="タスク開始"
           message={`「${startTarget.title}」の開始時刻を入力してください`}
-          // 初期値は常に現在時刻(Issue #19: 予定時刻だと実運用で使いにくい)。
-          // 予定どおり始めたいときは下のボタンで開始予定時刻を1クリックで入れられる
-          defaultValue={nowHHMM()}
+          // 初期値は「開始予定があれば予定時刻、無ければ現在時刻」(Issue #59)。
+          // 予定どおり始めることが多いので予定時刻を既定にする(#19の常時現在時刻から変更)。
+          // 今すぐ始めたいときは常設の「現在時刻」ボタンで1クリックで入れられる
+          defaultValue={startTarget.planStart ?? nowHHMM()}
           quickButtons={[
-            ...(startTarget.planStart
-              ? [{ label: `開始予定 (${startTarget.planStart})`, value: startTarget.planStart }]
-              : []),
             {
               label: `続き時間 (${lastEndTimeOfDay(tasks, startTarget.date ?? todayStr()) ?? "―"})`,
               value: lastEndTimeOfDay(tasks, startTarget.date ?? todayStr()) ?? "",
