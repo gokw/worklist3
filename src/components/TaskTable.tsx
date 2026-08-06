@@ -69,6 +69,8 @@ interface Props extends TaskActionHandlers {
   onFocusTask: (id: string) => void;
   /** ローカルパスのリンクをクリップボードへコピー(#45) */
   onCopyPath: (path: string) => void;
+  /** メモ内容を一覧上で表示・コピーする(#60) */
+  onShowMemo: (task: Task) => void;
   /** 編集中セル(App が保持し、キーボードからも開始できるよう制御化) */
   editing: EditingCell;
   onEditingChange: (e: EditingCell) => void;
@@ -190,6 +192,7 @@ export default function TaskTable({
   onFocusCell,
   onFocusTask,
   onCopyPath,
+  onShowMemo,
   editing,
   onEditingChange,
   dense = false,
@@ -494,13 +497,17 @@ export default function TaskTable({
                       );
                     })}
                     {t.memos.some((m) => m) && (
-                      <span
-                        className="ml-1 shrink-0 cursor-help text-gray-400"
-                        title={t.memos.filter(Boolean).join("\n")}
-                        onClick={(e) => e.stopPropagation()}
+                      <button
+                        type="button"
+                        className="ml-1 shrink-0 text-gray-400 hover:opacity-70"
+                        title={`${t.memos.filter(Boolean).join("\n")}\n(クリックで表示・コピー)`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onShowMemo(t);
+                        }}
                       >
                         📝
-                      </span>
+                      </button>
                     )}
                   </span>,
                   { tdClass: `${td} overflow-hidden`, placeholder: "タスク名" }
