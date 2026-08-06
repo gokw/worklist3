@@ -64,6 +64,7 @@ import { syncTasksToCalendar, type SyncSummary } from "./lib/gcalMap";
 import { acquireToken, createGoogleCalendarClient, loadGcalConfig, resetGcalAuth } from "./lib/gcalClient";
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
+import MemoDialog from "./components/MemoDialog";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 import BulkAddDialog from "./components/BulkAddDialog";
 import ImportResultDialog, { type ImportResult } from "./components/ImportResultDialog";
@@ -138,6 +139,7 @@ export default function App() {
   const [interruptTarget, setInterruptTarget] = useState<Task | null>(null);
   const [startTarget, setStartTarget] = useState<Task | null>(null);
   const [endTarget, setEndTarget] = useState<Task | null>(null);
+  const [memoTarget, setMemoTarget] = useState<Task | null>(null); // メモ表示ダイアログ(#60)
   const [seqOpen, setSeqOpen] = useState(false);
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
@@ -898,6 +900,19 @@ export default function App() {
     [showToast]
   );
 
+  /** メモ本文をクリップボードへコピー(改行もそのまま。#60) */
+  const handleCopyMemo = useCallback(
+    async (text: string) => {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast("メモをコピーしました");
+      } catch {
+        showToast("クリップボードにコピーできませんでした");
+      }
+    },
+    [showToast]
+  );
+
   /**
    * 選択したタスクをGoogleカレンダーへ登録/更新する(手動upsert・deleteはしない)。
    * 認証はこのボタン押下(ユーザー操作)を起点にする。成功分の gcalEventId を保存し、
@@ -1377,6 +1392,7 @@ export default function App() {
           interruptTarget ||
           startTarget ||
           endTarget ||
+          memoTarget ||
           seqOpen ||
           bulkOpen ||
           bulkAddOpen ||
@@ -1399,6 +1415,7 @@ export default function App() {
         interruptTarget ||
         startTarget ||
         endTarget ||
+        memoTarget ||
         seqOpen ||
         bulkOpen ||
         bulkAddOpen ||
@@ -1604,6 +1621,7 @@ export default function App() {
     interruptTarget,
     startTarget,
     endTarget,
+    memoTarget,
     seqOpen,
     bulkOpen,
     bulkAddOpen,
@@ -1739,6 +1757,7 @@ export default function App() {
           onFocusCell={onFocusCell}
           onFocusTask={focusRow}
           onCopyPath={handleCopyPath}
+          onShowMemo={setMemoTarget}
           editing={editingCell}
           onEditingChange={setEditingCell}
           readOnly={!isPrimary}
@@ -1827,6 +1846,14 @@ export default function App() {
           confirmLabel="終了"
           onConfirm={(time) => doEnd(endTarget, time)}
           onClose={() => setEndTarget(null)}
+        />
+      )}
+      {memoTarget && (
+        <MemoDialog
+          title={memoTarget.title}
+          memo={memoTarget.memos.filter(Boolean).join("\n")}
+          onCopy={handleCopyMemo}
+          onClose={() => setMemoTarget(null)}
         />
       )}
       {seqOpen && (
