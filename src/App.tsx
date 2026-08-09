@@ -68,6 +68,7 @@ import MemoDialog from "./components/MemoDialog";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 import BulkAddDialog from "./components/BulkAddDialog";
 import ImportResultDialog, { type ImportResult } from "./components/ImportResultDialog";
+import ImportModeDialog, { type ImportMode } from "./components/ImportModeDialog";
 import type { ParsedRow } from "./lib/bulkParse";
 
 // URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
@@ -144,6 +145,8 @@ export default function App() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkAddOpen, setBulkAddOpen] = useState(false);
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
+  /** モード選択待ちのファイル(JSON読込ボタンでファイルを選んだ直後にセット) */
+  const [importFile, setImportFile] = useState<File | null>(null);
   /** ショートカット一覧(?キー) */
   const [helpOpen, setHelpOpen] = useState(false);
   /** カレンダー登録の結果 */
@@ -641,17 +644,53 @@ export default function App() {
     [defaultScope, upsert, showToast, pushUndo]
   );
 
-  // JSONファイルからの一括インポート(Issue #12)。
-  // 「差分だけ読み込む」= 無いものは追加し、中身が違うものはファイルの内容で上書きする。
-  // 完全に同じものだけスキップ。これにより、消えたデータの復元にそのまま使える。
-  const handleImportFile = useCallback(
-    async (file: File) => {
+  // JSONファイルからの一括インポート(Issue #12 / #63)。読み込み方法を2つ持つ:
+  //   merge  … 追加読込(部分復元)。無いものは追加、中身が違うものはファイルで上書き、
+  //            完全に同じものはスキップ。今のデータは消えない。消えたデータの復元に使える。
+  //   replace… 全リセット読込。今のタスクを全部消して、ファイルの内容だけにする。
+  const runImport = useCallback(
+    async (file: File, mode: ImportMode) => {
       try {
         const raw = JSON.parse(await file.text());
         if (!Array.isArray(raw)) {
           showToast("インポート失敗: JSONがタスクの配列ではありません");
           return;
         }
+        const isValid = (item: unknown): item is Record<string, unknown> =>
+          !!item &&
+          typeof item === "object" &&
+          typeof (item as Record<string, unknown>).id === "string" &&
+          typeof (item as Record<string, unknown>).title === "string";
+
+        if (mode === "replace") {
+          if (!ensureWritable()) return; // 読み取り専用の窓では全消しさせない(#57)
+          const byId = new Map<string, Task>();
+          let invalid = 0;
+          for (const item of raw) {
+            if (!isValid(item)) {
+              invalid++;
+              continue;
+            }
+            const t = migrateTask(item);
+            byId.set(t.id, t); // ファイル内に同じIDが複数あれば後勝ち
+          }
+          const next = [...byId.values()];
+          const removed = tasks.length;
+          pushUndo("インポート(全リセット)"); // Ctrl+Zで元のデータに戻せる
+          setTasks(next);
+          setImportResult({
+            mode: "replace",
+            total: raw.length,
+            added: next.length,
+            updatedTitles: [],
+            same: 0,
+            invalid,
+            removed,
+          });
+          return;
+        }
+
+        // mode === "merge"(従来どおりの差分読み込み)
         const byId = new Map(tasks.map((t) => [t.id, t]));
         const write: Task[] = []; // 追加・上書きするタスク(そのまま upsert へ渡す)
         const updatedTitles: string[] = [];
@@ -659,12 +698,7 @@ export default function App() {
         let same = 0;
         let invalid = 0;
         for (const item of raw) {
-          if (
-            !item ||
-            typeof item !== "object" ||
-            typeof item.id !== "string" ||
-            typeof item.title !== "string"
-          ) {
+          if (!isValid(item)) {
             invalid++;
             continue;
           }
@@ -686,6 +720,7 @@ export default function App() {
           upsert(write);
         }
         setImportResult({
+          mode: "merge",
           total: raw.length,
           added,
           updatedTitles,
@@ -696,8 +731,13 @@ export default function App() {
         showToast("インポート失敗: JSONとして読み込めませんでした");
       }
     },
-    [tasks, upsert, showToast, pushUndo]
+    [tasks, upsert, showToast, pushUndo, ensureWritable, setTasks]
   );
+
+  // ファイル選択の直後はまだ取り込まない。まず読み込み方法をダイアログで選んでもらう(#63)。
+  const handleImportFile = useCallback((file: File) => {
+    setImportFile(file);
+  }, []);
 
   const openEditForm = useCallback((task: Task) => {
     setFormTask(task);
@@ -1397,6 +1437,7 @@ export default function App() {
           bulkOpen ||
           bulkAddOpen ||
           importResult ||
+          importFile ||
           calSyncResult ||
           helpOpen;
         if (!anyModal && (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT")) {
@@ -1420,6 +1461,7 @@ export default function App() {
         bulkOpen ||
         bulkAddOpen ||
         importResult ||
+        importFile ||
         calSyncResult ||
         helpOpen // 閉じる操作はヘルプ側が持つ(Esc / ? / クリック)
       )
@@ -1626,6 +1668,7 @@ export default function App() {
     bulkOpen,
     bulkAddOpen,
     importResult,
+    importFile,
     calSyncResult,
     helpOpen,
     openNewForm,
@@ -1879,6 +1922,18 @@ export default function App() {
           defaultDate={selectedDate}
           onRegister={handleBulkAdd}
           onClose={() => setBulkAddOpen(false)}
+        />
+      )}
+      {importFile && (
+        <ImportModeDialog
+          fileName={importFile.name}
+          currentCount={tasks.length}
+          onSelect={(mode) => {
+            const f = importFile;
+            setImportFile(null);
+            runImport(f, mode);
+          }}
+          onCancel={() => setImportFile(null)}
         />
       )}
       {importResult && (
