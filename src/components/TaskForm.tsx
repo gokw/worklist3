@@ -315,7 +315,7 @@ export default function TaskForm({
                   ))}
                 </div>
               )}
-              {/* 毎月X日(固定日)。空なら基準日の日を維持。土日祝は前営業日へ(#30) */}
+              {/* 毎月X日(固定日)。空なら基準日の日を維持。予定日基準は名目日のまま/完了起算は前営業日へ(#30,#66) */}
               {repeat.unit === "month" && (
                 <div className="flex flex-wrap items-center gap-1 text-xs text-gray-600">
                   <span className="mr-1">毎月</span>
@@ -338,11 +338,15 @@ export default function TaskForm({
                   />
                   <span>日</span>
                   <span className="ml-1 text-gray-400">
-                    {repeat.dayOfMonth != null ? "土日祝は前営業日へ" : "空=基準日の日を維持"}
+                    {repeat.dayOfMonth != null
+                      ? repeat.mode === "schedule"
+                        ? "毎月その日(土日祝でもその日のまま)"
+                        : "土日祝は前営業日へ"
+                      : "空=基準日の日を維持"}
                   </span>
                 </div>
               )}
-              {/* 毎年X月X日(固定日)。月・日の両方を入れると有効。土日祝は前営業日へ(#30) */}
+              {/* 毎年X月X日(固定日)。月・日の両方を入れると有効。予定日基準は名目日のまま/完了起算は前営業日へ(#30,#66) */}
               {repeat.unit === "year" && (
                 <div className="flex flex-wrap items-center gap-1 text-xs text-gray-600">
                   <span className="mr-1">毎年</span>
@@ -384,7 +388,9 @@ export default function TaskForm({
                   <span>日</span>
                   <span className="ml-1 text-gray-400">
                     {repeat.month != null && repeat.dayOfMonth != null
-                      ? "土日祝は前営業日へ"
+                      ? repeat.mode === "schedule"
+                        ? "毎年その日(土日祝でもその日のまま)"
+                        : "土日祝は前営業日へ"
                       : "月・日を両方入れると有効"}
                   </span>
                 </div>

@@ -149,21 +149,28 @@ export function endTask(
 }
 
 /**
- * 繰り返しの「次回日」を、休日回避まで含めて算出する(#30)。
+ * 繰り返しの「次回日」を算出する(#30 / #66)。
  *   - 曜日指定の週: その曜日群の次の該当日。土日祝ならさらに次へ(同曜日群を維持)。
- *   - 固定日(毎月X日 / 毎年X月X日): 名目日から算出し、土日祝なら前営業日へ。
- *   - それ以外(N日ごと / 単純な月・年後): 現状どおり単純加算(休日回避しない)。
+ *   - 固定日(毎月X日 / 毎年X月X日):
+ *       ・予定日基準(schedule): 名目日をそのまま返す(土日祝でも丸めない)。基準日が
+ *         属するサイクルの該当日(基準日以下の直近)を起点にするので、基準日が該当日を
+ *         過ぎていても翌々月へ飛ばず、丸め後の日付を基準にしてもループしない(#66)。
+ *       ・完了トリガー(afterComplete): 完了日以降の名目日から算出し、土日祝なら前営業日へ。
+ *   - それ以外(N日ごと / 単純な月・年後): 単純加算(休日回避しない)。
  */
 export function computeRepeatNextDate(repeat: RepeatConfig, baseDate: string): string {
   const { unit, interval, weekdays, dayOfMonth, month } = repeat;
+  const schedule = repeat.mode === "schedule";
   if (unit === "week" && weekdays && weekdays.length > 0) {
     return nextBusinessWeekday(baseDate, weekdays);
   }
   if (unit === "month" && dayOfMonth) {
-    return rollToBusinessDay(monthlyNominalDate(baseDate, interval, dayOfMonth), -1);
+    const nominal = monthlyNominalDate(baseDate, interval, dayOfMonth, schedule);
+    return schedule ? nominal : rollToBusinessDay(nominal, -1);
   }
   if (unit === "year" && month && dayOfMonth) {
-    return rollToBusinessDay(yearlyNominalDate(baseDate, interval, month, dayOfMonth), -1);
+    const nominal = yearlyNominalDate(baseDate, interval, month, dayOfMonth, schedule);
+    return schedule ? nominal : rollToBusinessDay(nominal, -1);
   }
   return addToDate(baseDate, unit, interval);
 }
