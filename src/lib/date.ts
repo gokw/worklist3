@@ -189,12 +189,32 @@ function dayOfMonthOnOrAfter(base: string, dayOfMonth: number): Date {
   return b;
 }
 
+/** base 以下で最後に「その月の dayOfMonth 日(末日クランプ)」になる日 = base が属するサイクルの当月 */
+function dayOfMonthOnOrBefore(base: string, dayOfMonth: number): Date {
+  const b = parseDateStr(base);
+  for (let i = 0; i <= 31; i++) {
+    const c = new Date(b.getFullYear(), b.getMonth(), b.getDate() - i);
+    const eff = Math.min(dayOfMonth, daysInMonth(c.getFullYear(), c.getMonth()));
+    if (c.getDate() === eff) return c;
+  }
+  return b;
+}
+
 /**
  * 毎月 dayOfMonth 日の、interval ヶ月後の名目日(丸め前)。
  * 実日付(丸め済みのことがある)ではなく名目日から数えるのでドリフトしない(#30 セクションE)。
+ * anchorBefore=true のときは base が属するサイクルの当月(基準日以下の直近の該当日)を起点にする(#66)。
+ *   これにより、基準日が該当日を過ぎていても(例: 5日指定で 8/6)翌々月へ飛ばない。
  */
-export function monthlyNominalDate(base: string, interval: number, dayOfMonth: number): string {
-  const cur = dayOfMonthOnOrAfter(base, dayOfMonth);
+export function monthlyNominalDate(
+  base: string,
+  interval: number,
+  dayOfMonth: number,
+  anchorBefore = false
+): string {
+  const cur = anchorBefore
+    ? dayOfMonthOnOrBefore(base, dayOfMonth)
+    : dayOfMonthOnOrAfter(base, dayOfMonth);
   const totalMonth = cur.getMonth() + interval;
   const y = cur.getFullYear() + Math.floor(totalMonth / 12);
   const m0 = ((totalMonth % 12) + 12) % 12;
@@ -214,14 +234,32 @@ function monthDayOnOrAfter(base: string, month: number, dayOfMonth: number): Dat
   return b;
 }
 
-/** 毎年 month 月 dayOfMonth 日の、interval 年後の名目日(丸め前) */
+/** base 以下で最後に (month 月, dayOfMonth 日) になる日 = base が属するサイクルの当年 */
+function monthDayOnOrBefore(base: string, month: number, dayOfMonth: number): Date {
+  const b = parseDateStr(base);
+  const m0 = month - 1;
+  for (let y = b.getFullYear(); y >= b.getFullYear() - 1; y--) {
+    const day = Math.min(dayOfMonth, daysInMonth(y, m0));
+    const cand = new Date(y, m0, day);
+    if (toDateStr(cand) <= base) return cand;
+  }
+  return b;
+}
+
+/**
+ * 毎年 month 月 dayOfMonth 日の、interval 年後の名目日(丸め前)。
+ * anchorBefore=true のときは base が属するサイクルの当年(基準日以下の直近の該当日)を起点にする(#66)。
+ */
 export function yearlyNominalDate(
   base: string,
   interval: number,
   month: number,
-  dayOfMonth: number
+  dayOfMonth: number,
+  anchorBefore = false
 ): string {
-  const cur = monthDayOnOrAfter(base, month, dayOfMonth);
+  const cur = anchorBefore
+    ? monthDayOnOrBefore(base, month, dayOfMonth)
+    : monthDayOnOrAfter(base, month, dayOfMonth);
   const y = cur.getFullYear() + interval;
   const m0 = month - 1;
   const day = Math.min(dayOfMonth, daysInMonth(y, m0));

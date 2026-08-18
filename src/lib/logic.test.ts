@@ -49,37 +49,55 @@ describe("postponeTask(繰り返しあり)", () => {
   });
 });
 
-describe("computeRepeatNextDate(固定日・休日回避。#30)", () => {
-  it("毎月15日: 次回15日が日曜なら前営業日(金)へ", () => {
-    // 2026-02-15 基準 → 3/15(日) → 前営業日 3/13(金)
+describe("computeRepeatNextDate(予定日基準の固定日・名目日で回す。#66)", () => {
+  it("毎月15日: 次回は名目の15日。土日でも丸めない", () => {
+    // 2026-02-15 基準 → 3/15(日)。予定日基準は丸めないので 3/15 のまま
     expect(
       computeRepeatNextDate(
         { mode: "schedule", unit: "month", interval: 1, dayOfMonth: 15, copyPlanStart: false },
         "2026-02-15"
       )
-    ).toBe("2026-03-13");
+    ).toBe("2026-03-15");
   });
 
-  it("毎月1日: 丸め済みの実日付を基準にしてもドリフトしない(名目日から計算)", () => {
-    // 2026-11-01(日)は前営業日 10/30(金)に丸まる。その 10/30 を基準にしても
-    // 次回は 12/1(火)= 名目日基準。素朴計算だと 11/30 になり誤り。
+  it("毎月5日: 基準日が該当日を過ぎていても翌々月へ飛ばない(#66)", () => {
+    // 5日指定で基準日が 8/6(5日を1日過ぎ)。従来は 10/5(翌々月)になっていた。
+    // 予定日基準は基準日が属するサイクル(8/5)を起点にするので次は 9/5。
+    expect(
+      computeRepeatNextDate(
+        { mode: "schedule", unit: "month", interval: 1, dayOfMonth: 5, copyPlanStart: false },
+        "2026-08-06"
+      )
+    ).toBe("2026-09-05");
+  });
+
+  it("毎月5日: 該当日より前の基準日は当サイクルの該当日へ(9/1→9/5)", () => {
+    expect(
+      computeRepeatNextDate(
+        { mode: "schedule", unit: "month", interval: 1, dayOfMonth: 5, copyPlanStart: false },
+        "2026-09-01"
+      )
+    ).toBe("2026-09-05");
+  });
+
+  it("毎月1日: 名目日で回すので前月へ越境した基準日でもループしない", () => {
+    // 10/30 を基準にしても次回は 11/1(名目日)。丸めないので以降 12/1…と進む。
     expect(
       computeRepeatNextDate(
         { mode: "schedule", unit: "month", interval: 1, dayOfMonth: 1, copyPlanStart: false },
         "2026-10-30"
       )
-    ).toBe("2026-12-01");
+    ).toBe("2026-11-01");
   });
 
-  it("毎年5月3日: 次回が祝日(憲法記念日)+連休なら前営業日へ", () => {
-    // 2026-01-01 基準 → 当年 5/3 → 翌年 2027-05-03(月・憲法記念日)
-    // → 5/2(日)→ 5/1(土)→ 4/30(金)
+  it("毎年5月3日: 基準日が属するサイクルの翌回=当年5/3。土日でも丸めない", () => {
+    // 2026-01-01 基準 → 直近の 5/3 は 2025-05-03 → +1年 = 2026-05-03(日)。丸めない
     expect(
       computeRepeatNextDate(
         { mode: "schedule", unit: "year", interval: 1, month: 5, dayOfMonth: 3, copyPlanStart: false },
         "2026-01-01"
       )
-    ).toBe("2027-04-30");
+    ).toBe("2026-05-03");
   });
 
   it("毎週木曜: 次の木曜が祝日なら翌週の木曜へ(金へ丸めない)", () => {
@@ -92,15 +110,24 @@ describe("computeRepeatNextDate(固定日・休日回避。#30)", () => {
     ).toBe("2026-01-08");
   });
 
-  it("末日クランプ: 毎月31日は31日の無い月では末日へ", () => {
-    // 2026-01-31 基準 → 2月 → 2026-02-28(末日)。土日祝でなければそのまま
-    // 2/28(土)なので前営業日 2/27(金)
+  it("末日クランプ: 毎月31日は31日の無い月では末日へ(丸めない)", () => {
+    // 2026-01-31 基準 → 2月 → 2026-02-28(末日=土)。予定日基準は丸めないのでそのまま
     expect(
       computeRepeatNextDate(
         { mode: "schedule", unit: "month", interval: 1, dayOfMonth: 31, copyPlanStart: false },
         "2026-01-31"
       )
-    ).toBe("2026-02-27");
+    ).toBe("2026-02-28");
+  });
+
+  it("完了トリガーの固定日は従来どおり完了日以降の名目日+前営業日丸め", () => {
+    // afterComplete は #30 の挙動を維持: 2026-02-15 起点 → 3/15(日) → 前営業日 3/13(金)
+    expect(
+      computeRepeatNextDate(
+        { mode: "afterComplete", unit: "month", interval: 1, dayOfMonth: 15, copyPlanStart: false },
+        "2026-02-15"
+      )
+    ).toBe("2026-03-13");
   });
 
   it("周期(N日ごと・dayOfMonth無し)は休日回避しない", () => {
