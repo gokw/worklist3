@@ -95,6 +95,30 @@ export function remainMin(task: Task): number {
 }
 
 /**
+ * 実行中タスクの終了予定時刻 HH:MM(= 開始実績 + 見積)。#68
+ * 開始実績が無い/見積が0なら undefined(終了時刻を出せない)。
+ */
+export function runningPlanEnd(task: Task): string | undefined {
+  const start = hhmmToMin(task.actStart);
+  if (start === undefined || !task.estimateMin) return undefined;
+  return minToHHMM(start + task.estimateMin);
+}
+
+/**
+ * 実行中タスクの残り時間(分)を、その日の「今の分」nowMin 基準で返す。#68
+ *   残り = 見積 − 経過(= now − 開始実績)。負なら終了予定を過ぎている(超過)。
+ *   日をまたいで動かし続けている場合は 24h 折り返しで経過を数える。
+ *   開始実績が無ければ undefined。
+ */
+export function runningRemainMin(task: Task, nowMin: number): number | undefined {
+  const start = hhmmToMin(task.actStart);
+  if (start === undefined) return undefined;
+  let elapsed = nowMin - start;
+  if (elapsed < 0) elapsed += 1440; // 日跨ぎ
+  return task.estimateMin - elapsed;
+}
+
+/**
  * その日の最終終了時刻(終了実績の最大)を返す。無ければ undefined。
  * Excel版 I4 = MAX(終了実績) 相当。「続き時間」ボタンの初期値に使う。
  */

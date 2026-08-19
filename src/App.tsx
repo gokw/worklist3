@@ -65,6 +65,7 @@ import { acquireToken, createGoogleCalendarClient, loadGcalConfig, resetGcalAuth
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
 import MemoDialog from "./components/MemoDialog";
+import RunningBanner from "./components/RunningBanner";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 import BulkAddDialog from "./components/BulkAddDialog";
 import ImportResultDialog, { type ImportResult } from "./components/ImportResultDialog";
@@ -520,6 +521,13 @@ export default function App() {
     titleMatcher,
     dateShift,
   ]);
+
+  // 実行中(開始実績あり・終了実績なし)のタスク。バナー表示用(#68)。
+  // 「いま何をしているか」を見失わないよう、表示フィルタに関わらず全件から拾う。
+  const runningTasks = useMemo(
+    () => tasks.filter((t) => derivedStatus(t) === "running"),
+    [tasks]
+  );
 
   /**
    * 指定タスクが今の絞り込みで隠れているなら、見えるようになる最小限だけ緩めてカーソルを合わせる。
@@ -1766,6 +1774,10 @@ export default function App() {
         onOpenHelp={() => setHelpOpen(true)}
         readOnly={!isPrimary}
       />
+
+      {/* 実行中タスクのバナー(#68): いま何をしているか / いつまでに終えるかを常時表示。
+          終了予定を過ぎたら赤くして通知する。表示フィルタに関わらず全実行中タスクを出す */}
+      <RunningBanner runningTasks={runningTasks} onEnd={handleEnd} onFocus={revealTask} />
 
       {/* 読み取り専用バナー(#57): 別窓で編集中のとき。ここで編集すると他窓の変更を
           消す事故になるため書き込みを止めている旨を示し、明示操作で書き手を引き継げる */}
