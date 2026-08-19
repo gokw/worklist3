@@ -2,7 +2,13 @@
 // タスクのライフサイクルロジック(延期など)
 // ==============================================================
 import { describe, it, expect } from "vitest";
-import { computeRepeatNextDate, createTask, postponeTask } from "./logic";
+import {
+  computeRepeatNextDate,
+  createTask,
+  postponeTask,
+  runningPlanEnd,
+  runningRemainMin,
+} from "./logic";
 
 describe("postponeTask(繰り返しなし。#37)", () => {
   it("金曜のタスクは翌営業日(月)へ。ただし月が祝日なら次の営業日へ", () => {
@@ -138,5 +144,46 @@ describe("computeRepeatNextDate(予定日基準の固定日・名目日で回す
         "2026-02-19"
       )
     ).toBe("2026-02-22");
+  });
+});
+
+describe("runningPlanEnd(実行中タスクの終了予定時刻。#68)", () => {
+  it("開始実績 + 見積 を返す", () => {
+    const t = createTask({ actStart: "09:00", estimateMin: 90 });
+    expect(runningPlanEnd(t)).toBe("10:30");
+  });
+
+  it("日跨ぎは24h折り返しで表示する", () => {
+    const t = createTask({ actStart: "23:30", estimateMin: 60 });
+    expect(runningPlanEnd(t)).toBe("00:30");
+  });
+
+  it("開始実績が無ければ undefined", () => {
+    expect(runningPlanEnd(createTask({ estimateMin: 30 }))).toBeUndefined();
+  });
+
+  it("見積が0なら undefined(終了時刻を出せない)", () => {
+    expect(runningPlanEnd(createTask({ actStart: "09:00", estimateMin: 0 }))).toBeUndefined();
+  });
+});
+
+describe("runningRemainMin(実行中タスクの残り分。#68)", () => {
+  it("経過ぶんを引いた残りを返す(09:00開始/見積60/現在09:20 → 残40)", () => {
+    const t = createTask({ actStart: "09:00", estimateMin: 60 });
+    expect(runningRemainMin(t, 9 * 60 + 20)).toBe(40);
+  });
+
+  it("終了予定を過ぎていれば負(超過)を返す", () => {
+    const t = createTask({ actStart: "09:00", estimateMin: 30 });
+    expect(runningRemainMin(t, 9 * 60 + 50)).toBe(-20);
+  });
+
+  it("日跨ぎ(23:30開始/現在00:10)は折り返して経過40分と数える", () => {
+    const t = createTask({ actStart: "23:30", estimateMin: 60 });
+    expect(runningRemainMin(t, 10)).toBe(20); // 経過40 → 残20
+  });
+
+  it("開始実績が無ければ undefined", () => {
+    expect(runningRemainMin(createTask({ estimateMin: 30 }), 600)).toBeUndefined();
   });
 });
