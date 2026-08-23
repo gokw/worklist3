@@ -351,8 +351,14 @@ export function createWaitCopy(task: Task): Task {
  * タスクを複製する(実行状態はリセットした新規タスク)。Issue #1
  * Issue #13: 開始予定時刻(planStart)は引き継がない。コピーは別の時間に置くのが普通で、
  * 同じ時刻に2件並ぶと連続時刻設定や予定ビューが乱れるため。見積(作業の長さ)は残す。
+ *
+ * Issue #70: 繰り返し設定を引き継ぐかを選べるようにする。
+ *   includeRepeat=false(既定): 繰り返し設定なしの単発タスクとして複製する。
+ *     繰り返しタスクを丸ごと複製すると定期タスクが2本に増えてしまい、意図せず
+ *     両方から次回分が生成される。「この1回分だけ複製したい」ケースの方が多いので既定にする。
+ *   includeRepeat=true: 繰り返し設定も含めて丸ごと複製する。
  */
-export function copyTask(task: Task): Task {
+export function copyTask(task: Task, opts?: { includeRepeat?: boolean }): Task {
   return createTask({
     title: task.title,
     scope: task.scope,
@@ -361,7 +367,7 @@ export function copyTask(task: Task): Task {
     date: task.date,
     estimateMin: task.estimateMin,
     deadline: task.deadline,
-    repeat: task.repeat,
+    repeat: opts?.includeRepeat ? task.repeat : undefined,
     memos: [...task.memos],
     links: [...task.links],
   });

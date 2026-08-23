@@ -8,7 +8,8 @@ export interface TaskActionHandlers {
   onStart: (task: Task) => void;
   onEnd: (task: Task) => void;
   onInterrupt: (task: Task) => void;
-  onCopy: (task: Task) => void;
+  /** includeRepeat: 繰り返し設定も含めて複製するか(Shift併用でtrue)。#70 */
+  onCopy: (task: Task, includeRepeat: boolean) => void;
   onPostpone: (task: Task) => void;
   onEdit: (task: Task) => void;
   onDelete: (task: Task) => void;
@@ -115,9 +116,13 @@ export default function TaskActions({
             ? "text-gray-400 hover:bg-gray-200 hover:text-gray-600"
             : "border-gray-300 bg-white text-gray-600 hover:bg-gray-100"
         }`}
-        title="このタスクを複製(Cキー)"
+        title={
+          task.repeat
+            ? "このタスクを複製(Cキー): 繰り返しなしで複製。Shift+クリックで繰り返しごと複製"
+            : "このタスクを複製(Cキー)"
+        }
         disabled={readOnly}
-        onClick={() => onCopy(task)}
+        onClick={(e) => onCopy(task, e.shiftKey)}
       >
         {label("⧉", "コピー")}
       </button>
