@@ -4,11 +4,51 @@
 import { describe, it, expect } from "vitest";
 import {
   computeRepeatNextDate,
+  copyTask,
   createTask,
   postponeTask,
   runningPlanEnd,
   runningRemainMin,
 } from "./logic";
+
+describe("copyTask(繰り返しの引き継ぎ。#70)", () => {
+  const repeat = {
+    mode: "schedule" as const,
+    unit: "week" as const,
+    interval: 1,
+    copyPlanStart: false,
+  };
+
+  it("既定は繰り返しなしで複製する(ケース2)", () => {
+    const t = createTask({ title: "定例", date: "2026-08-24", repeat });
+    const copy = copyTask(t);
+    expect(copy.repeat).toBeUndefined();
+    expect(copy.title).toBe("定例");
+    expect(copy.date).toBe("2026-08-24");
+    expect(copy.id).not.toBe(t.id);
+  });
+
+  it("includeRepeat=true で繰り返し設定ごと複製する(ケース1)", () => {
+    const t = createTask({ title: "定例", date: "2026-08-24", repeat });
+    const copy = copyTask(t, { includeRepeat: true });
+    expect(copy.repeat).toEqual(repeat);
+  });
+
+  it("実行状態はリセットし、開始予定時刻は引き継がない(#1/#13)", () => {
+    const t = createTask({
+      title: "A",
+      planStart: "09:00",
+      actStart: "09:05",
+      actEnd: "09:30",
+      estimateMin: 25,
+    });
+    const copy = copyTask(t);
+    expect(copy.planStart).toBeUndefined();
+    expect(copy.actStart).toBeUndefined();
+    expect(copy.actEnd).toBeUndefined();
+    expect(copy.estimateMin).toBe(25);
+  });
+});
 
 describe("postponeTask(繰り返しなし。#37)", () => {
   it("金曜のタスクは翌営業日(月)へ。ただし月が祝日なら次の営業日へ", () => {

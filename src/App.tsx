@@ -808,13 +808,20 @@ export default function App() {
   );
 
   // タスクを複製(実行状態はリセットした新規タスク)。Issue #1
+  // Issue #70: 既定は繰り返し設定なしで複製。includeRepeat=true(Shift併用)で丸ごと複製。
   const handleCopy = useCallback(
-    (task: Task) => {
+    (task: Task, includeRepeat = false) => {
       pushUndo("コピー");
-      const copy = copyTask(task);
+      const copy = copyTask(task, { includeRepeat });
       upsert([copy]);
       setFocusedId(copy.id);
-      showToast(`コピーしました: ${task.title}`, true);
+      const suffix =
+        task.repeat && !includeRepeat
+          ? "(繰り返しなし)"
+          : task.repeat && includeRepeat
+            ? "(繰り返しごと)"
+            : "";
+      showToast(`コピーしました${suffix}: ${task.title}`, true);
     },
     [upsert, showToast, pushUndo]
   );
@@ -1632,10 +1639,10 @@ export default function App() {
           if (running) setInterruptTarget(focused);
           else showToast("実行中のタスクのみ中断できます");
           break;
-        case "c": // コピー(複製)
+        case "c": // コピー(複製)。既定は繰り返しなし。Shift+Cで繰り返しごと複製(#70)
           if (!focused) break;
           e.preventDefault();
-          handleCopy(focused);
+          handleCopy(focused, e.shiftKey);
           break;
         case "p": // 次の日程へ延期(選択があればまとめて/無ければカーソル。判定は handlePostpone)
           if (!focused && selectedIds.length === 0) break;
