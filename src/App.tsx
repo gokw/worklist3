@@ -64,7 +64,6 @@ import { syncTasksToCalendar, type SyncSummary } from "./lib/gcalMap";
 import { acquireToken, createGoogleCalendarClient, loadGcalConfig, resetGcalAuth } from "./lib/gcalClient";
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
-import EstimateInputDialog from "./components/EstimateInputDialog";
 import MemoDialog from "./components/MemoDialog";
 import RunningBanner from "./components/RunningBanner";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
@@ -141,8 +140,6 @@ export default function App() {
   const [formIsNew, setFormIsNew] = useState(true);
   const [interruptTarget, setInterruptTarget] = useState<Task | null>(null);
   const [startTarget, setStartTarget] = useState<Task | null>(null);
-  // 見積0のタスク開始時に見積を聞くダイアログ(#74)。開始時刻は確定済みなので一緒に保持する
-  const [estimateTarget, setEstimateTarget] = useState<{ task: Task; time: string } | null>(null);
   const [endTarget, setEndTarget] = useState<Task | null>(null);
   const [memoTarget, setMemoTarget] = useState<Task | null>(null); // メモ表示ダイアログ(#60)
   const [seqOpen, setSeqOpen] = useState(false);
@@ -760,36 +757,14 @@ export default function App() {
     setStartTarget(task);
   }, []);
 
-  // 実際に開始してトーストを出す(見積が確定した後の共通処理)
-  const commitStart = useCallback(
+  const doStart = useCallback(
     (task: Task, time: string) => {
       pushUndo("開始");
       upsert([startTask(task, time)]);
+      setStartTarget(null);
       showToast(`▶ 開始: ${task.title} (${time})`, true);
     },
     [upsert, showToast, pushUndo]
-  );
-
-  // 開始時刻ダイアログで確定したとき。見積が0なら見積入力へ、そうでなければそのまま開始(#74)
-  const doStart = useCallback(
-    (task: Task, time: string) => {
-      setStartTarget(null);
-      if (task.estimateMin === 0) {
-        setEstimateTarget({ task, time });
-        return;
-      }
-      commitStart(task, time);
-    },
-    [commitStart]
-  );
-
-  // 見積入力ダイアログで確定したとき(0のまま開始も含む)。見積を反映して開始する(#74)
-  const doStartWithEstimate = useCallback(
-    (task: Task, time: string, estimateMin: number) => {
-      setEstimateTarget(null);
-      commitStart(estimateMin > 0 ? { ...task, estimateMin } : task, time);
-    },
-    [commitStart]
   );
 
   // 終了も時刻入力ダイアログを開き、確定した時刻で終了する(Excel版 EndTask 踏襲)
@@ -1471,7 +1446,6 @@ export default function App() {
           formTask ||
           interruptTarget ||
           startTarget ||
-          estimateTarget ||
           endTarget ||
           memoTarget ||
           seqOpen ||
@@ -1496,7 +1470,6 @@ export default function App() {
         formTask ||
         interruptTarget ||
         startTarget ||
-        estimateTarget ||
         endTarget ||
         memoTarget ||
         seqOpen ||
@@ -1704,7 +1677,6 @@ export default function App() {
     formTask,
     interruptTarget,
     startTarget,
-    estimateTarget,
     endTarget,
     memoTarget,
     seqOpen,
@@ -1922,16 +1894,6 @@ export default function App() {
           confirmLabel="開始"
           onConfirm={(time) => doStart(startTarget, time)}
           onClose={() => setStartTarget(null)}
-        />
-      )}
-      {/* 見積0のタスク開始時に見積を聞く(#74)。開始時刻は確定済み */}
-      {estimateTarget && (
-        <EstimateInputDialog
-          task={estimateTarget.task}
-          onConfirm={(estimateMin) =>
-            doStartWithEstimate(estimateTarget.task, estimateTarget.time, estimateMin)
-          }
-          onClose={() => setEstimateTarget(null)}
         />
       )}
       {endTarget && (
