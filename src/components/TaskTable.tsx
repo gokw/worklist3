@@ -475,6 +475,8 @@ export default function TaskTable({
                             title={`${link.display}\n(クリックでパスをコピー→エクスプローラに貼り付け)`}
                             onClick={(e) => {
                               e.stopPropagation();
+                              // #78 クリック後にフォーカスを残さない(残るとSpace/Enterがこのボタンを再発火する)
+                              e.currentTarget.blur();
                               onCopyPath(link.value);
                             }}
                           >
@@ -490,7 +492,12 @@ export default function TaskTable({
                           rel="noreferrer"
                           className="ml-1 shrink-0 text-blue-500 hover:underline"
                           title={link.display}
-                          onClick={(e) => e.stopPropagation()}
+                          // #78 リンクを開いた後もフォーカスがリンクに残り、キーボード操作が乱れる。
+                          //     クリック時にblurしてフォーカスを一覧へ戻す。
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            e.currentTarget.blur();
+                          }}
                         >
                           🔗
                         </a>
@@ -503,6 +510,7 @@ export default function TaskTable({
                         title={`${t.memos.filter(Boolean).join("\n")}\n(クリックで表示・コピー)`}
                         onClick={(e) => {
                           e.stopPropagation();
+                          e.currentTarget.blur(); // #78 クリック後にフォーカスを残さない
                           onShowMemo(t);
                         }}
                       >

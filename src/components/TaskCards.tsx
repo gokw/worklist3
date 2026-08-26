@@ -136,7 +136,11 @@ export default function TaskCards({
                           type="button"
                           className="max-w-56 truncate text-gray-600 hover:opacity-70"
                           title={`${link.display}\n(クリックでパスをコピー→エクスプローラに貼り付け)`}
-                          onClick={() => onCopyPath?.(link.value)}
+                          onClick={(e) => {
+                            // #78 クリック後にフォーカスを残さない
+                            e.currentTarget.blur();
+                            onCopyPath?.(link.value);
+                          }}
                         >
                           {link.isFile ? "📄" : "📁"} {link.display}
                         </button>
@@ -149,6 +153,8 @@ export default function TaskCards({
                         target="_blank"
                         rel="noreferrer"
                         className="max-w-56 truncate text-blue-500 hover:underline"
+                        // #78 リンクを開いた後もフォーカスが残りキーボード操作が乱れるため、クリック時にblur
+                        onClick={(e) => e.currentTarget.blur()}
                       >
                         🔗 {link.display}
                       </a>
