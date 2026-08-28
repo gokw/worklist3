@@ -844,19 +844,33 @@ export default function App() {
         return;
       }
       const skipped = pool.length - targets.length;
-      pushUndo(targets.length > 1 ? `延期(${targets.length}件)` : "延期");
+      const bulk = targets.length > 1;
+      // Issue #80: 日付移動(Ctrl+H/K/L)と同じく、延期直後はすぐ動かさない。
+      //   並びを「延期前の順」に固定してその場に留め、トースト表示中(=窓)だけ待機し、
+      //   窓が閉じてから整列＋カーソル追従する。連打(同じ対象への続けての延期)は
+      //   1つのundo・1セッションにまとめる。
+      const key = bulk ? "bulk" : targets[0].id;
+      const fresh = !dateShift || dateShift.key !== key;
+      if (fresh) {
+        pushUndo(bulk ? `延期(${targets.length}件)` : "延期", false); // 失効は dateShiftTimer が管理
+        setDateShift({ key, order: visibleTasks.map((t) => t.id), focusId: focusedId });
+      }
       const moved = targets.map((t) => postponeTask(t));
-      // カーソル位置のタスクが一覧から外れる場合に、次の残タスクへカーソルを送る(Issue #36 と同種)
-      armRefocusIfLeaves(focusedId ?? targets[0].id);
       upsert(moved);
       showToast(
-        targets.length > 1
+        bulk
           ? `${targets.length}件を延期しました${skipped ? `(${skipped}件は対象外)` : ""}`
           : `延期しました: ${formatDateJa(moved[0].date as string)}`,
         true
       );
+      // 窓(=固定)の終了タイマ。押すたびに延長し、止まったら整列＋カーソル追従(期間外へ出たら隣へ)
+      window.clearTimeout(dateShiftTimer.current);
+      dateShiftTimer.current = window.setTimeout(
+        () => endDateShift(true, focusedId ?? undefined),
+        UNDO_WINDOW_MS
+      );
     },
-    [visibleTasks, selectedIds, focusedId, upsert, showToast, pushUndo, armRefocusIfLeaves]
+    [dateShift, visibleTasks, selectedIds, focusedId, upsert, showToast, pushUndo, endDateShift]
   );
 
   /**
