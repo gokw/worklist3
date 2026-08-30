@@ -407,7 +407,10 @@ export function getGdriveTarget(): GdriveBackupTarget {
 export async function switchBackupTarget(id: BackupTargetId, tasks: Task[]): Promise<void> {
   if (current.id === id) return;
   const next = targets[id];
-  if (!next?.supported) return;
+  if (!next) return;
+  // 使えない保存先への切替も通す。ここで弾くと、その保存先を選べないまま
+  // 「なぜ使えないか」の説明にも辿り着けず、今の保存先から戻れなくなる。
+  // 使えない保存先は restore() が失敗するので、未接続として説明が出る。
   // 進行中の書き込み予約は捨てる(切替先へ書くべきなので)
   window.clearTimeout(flushTimer);
   pending = null;

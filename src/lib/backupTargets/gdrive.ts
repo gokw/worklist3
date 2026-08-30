@@ -68,6 +68,21 @@ export function saveGdriveConfig(c: Partial<GdriveConfig>): void {
 /** 認証が切れた・設定が足りないなど、再接続で直る種類の失敗 */
 class NeedsReconnect extends Error {}
 
+/** Drive のエラー応答から、人が読める理由を取り出す */
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const body = (await res.clone().json()) as { error?: { message?: string } };
+    if (body.error?.message) return body.error.message;
+  } catch {
+    /* JSON でなければ本文をそのまま使う */
+  }
+  try {
+    return (await res.text()).slice(0, 200) || res.statusText;
+  } catch {
+    return res.statusText;
+  }
+}
+
 export class GdriveBackupTarget implements BackupTarget {
   readonly id = "gdrive" as const;
   readonly label = "Google ドライブ";
@@ -102,16 +117,38 @@ export class GdriveBackupTarget implements BackupTarget {
 
   // ---- 認証 ----
 
-  private async token(): Promise<string> {
+  /**
+   * アクセストークンを用意する。
+   * interactive=true(ユーザーがボタンを押した接続時)のときだけ同意画面を出してよい。
+   * 書き込み中の失効からの復帰は非interactiveで、駄目なら再接続を促す。
+   */
+  private async token(interactive = false): Promise<string> {
     const cached = this.tokens.current;
     if (cached) return cached;
     const { clientId } = loadGdriveConfig();
     if (!clientId) throw new NeedsReconnect("Client ID が設定されていません");
+    let token: string;
     try {
-      return await this.tokens.acquire(clientId);
-    } catch {
-      throw new NeedsReconnect("Google の認証が切れています。💾メニューから再接続してください");
+      token = await this.tokens.acquire(clientId, interactive);
+    } catch (e) {
+      const detail = e instanceof Error && e.message ? `: ${e.message}` : "";
+      throw new NeedsReconnect(
+        interactive
+          ? `Google の認証に失敗しました${detail}`
+          : "Google の認証が切れています。💾メニューから再接続してください"
+      );
     }
+    // 同じ Client ID で別のスコープ(カレンダー等)を既に許可していると、
+    // Drive のぶんだけ落ちたトークンが返ることがある。その状態で API を叩くと
+    // 403 になるだけで理由が分からないため、ここで先に捕まえる。
+    if (this.tokens.missingRequestedScope) {
+      throw new NeedsReconnect(
+        "Google ドライブへのアクセスが許可されていません。" +
+          "同意画面で「Google ドライブ」の項目にチェックを入れてください" +
+          "(Cloud Console 側で Drive API の有効化とスコープ drive.file の追加も必要です)"
+      );
+    }
+    return token;
   }
 
   /**
@@ -129,7 +166,9 @@ export class GdriveBackupTarget implements BackupTarget {
       return await this.call(url, init, false);
     }
     if (!res.ok && res.status !== 404) {
-      throw new Error(`Drive API エラー (${res.status})`);
+      // Google が返す理由をそのまま見せる。「API が有効になっていない」
+      // 「スコープが足りない」はここでしか区別できず、握り潰すと原因が追えない。
+      throw new Error(`Drive API エラー (${res.status}): ${await errorMessage(res)}`);
     }
     return res;
   }
@@ -184,7 +223,7 @@ export class GdriveBackupTarget implements BackupTarget {
 
   // ---- 接続 ----
 
-  private async attach(): Promise<ConnectResult> {
+  private async attach(interactive: boolean): Promise<ConnectResult> {
     const { clientId, device } = loadGdriveConfig();
     if (!clientId || !device) {
       return {
@@ -195,38 +234,39 @@ export class GdriveBackupTarget implements BackupTarget {
       };
     }
     try {
-      await this.token();
+      await this.token(interactive);
       await this.folders();
       this.connected = true;
       return { ok: true, displayName: device };
     } catch (e) {
       this.connected = false;
-      const needsReconnect = e instanceof NeedsReconnect;
+      // 汎用文言で潰さず、失敗した理由をそのまま出す。
+      // 外部サービスの設定不備が原因なので、ここが分からないと手の打ちようがない。
+      const message = e instanceof Error && e.message ? e.message : String(e);
       return {
         ok: false,
         displayName: device,
-        problem: needsReconnect
-          ? (e as Error).message
-          : "Google ドライブへ接続できませんでした",
-        needsReconnect,
+        problem: message,
+        needsReconnect: true,
       };
     }
   }
 
+  /** ユーザーがボタンを押した接続。同意画面を出してよい */
   connect(): Promise<ConnectResult> {
-    return this.attach();
+    return this.attach(true);
   }
 
   restore(): Promise<ConnectResult> {
     // 設定が無いなら何もしない(起動時に認証画面を出さない)
     const { clientId, device } = loadGdriveConfig();
     if (!clientId || !device) return Promise.resolve({ ok: false, displayName: "" });
-    return this.attach();
+    return this.attach(false);
   }
 
   reconnect(): Promise<ConnectResult> {
     this.tokens.forget();
-    return this.attach();
+    return this.attach(true);
   }
 
   async disconnect(): Promise<void> {

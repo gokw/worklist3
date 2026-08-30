@@ -527,21 +527,24 @@ export default function Toolbar(p: Props) {
                     新しい保存先に世代が貯まるまでの保険として残しておける */}
                 <div className="flex items-center gap-1 px-3 py-1 text-xs">
                   <span className="text-gray-500">保存先:</span>
+                  {/* 使えない保存先も選べるようにしておく。選べないと、その保存先が
+                      なぜ使えないのかを説明する画面に辿り着けず、いま選んでいる方から
+                      戻れなくなる(閉じ込め) */}
                   {p.backupTargetOptions.map((t) => (
                     <button
                       key={t.id}
-                      disabled={!t.supported}
                       className={
                         t.id === p.backup.targetId
                           ? "rounded border border-blue-500 bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700"
                           : t.supported
                             ? "rounded border border-gray-300 bg-white px-1.5 py-0.5 hover:bg-gray-100"
-                            : "cursor-not-allowed rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-gray-400"
+                            : "rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-gray-400 hover:bg-gray-100"
                       }
-                      title={t.supported ? "" : "この環境では使えません"}
+                      title={t.supported ? "" : "この環境では使えません(選ぶと理由が出ます)"}
                       onClick={() => p.onSwitchBackupTarget(t.id)}
                     >
                       {t.label}
+                      {!t.supported && "(不可)"}
                     </button>
                   ))}
                 </div>
@@ -580,9 +583,14 @@ export default function Toolbar(p: Props) {
                 )}
 
                 {!p.backup.supported ? (
-                  <p className="px-3 pb-2 text-xs text-gray-500">
-                    この保存先はこの環境では使えません
-                    {p.backup.targetId === "fsa" && "(ローカルフォルダは Chrome / Edge のみ)"}
+                  <p className="px-3 pb-2 text-xs text-amber-700">
+                    ⚠ この保存先はこの環境では使えないため、自動バックアップは動きません。
+                    {p.backup.targetId === "fsa"
+                      ? "ローカルフォルダは File System Access API を使いますが、このブラウザでは無効です" +
+                        "(Chrome / Edge なら使えます。Brave は既定で無効で、brave://flags の" +
+                        " File System Access API から有効にできます)。" +
+                        "このブラウザのまま控えを取るなら「Google ドライブ」を選んでください。"
+                      : "別の保存先を選んでください。"}
                   </p>
                 ) : !p.backup.connected ? (
                   <>
