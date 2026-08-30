@@ -18,6 +18,8 @@ interface Props {
   onEnd: (task: Task) => void;
   /** タスク名クリックで、その行へジャンプ(フォーカス)する */
   onFocus: (task: Task) => void;
+  /** モバイル(狭い画面)。1行に詰め、通知ボタンはアイコンだけにする */
+  compact?: boolean;
 }
 
 /** 開始実績(task.date + actStart)からの終了予定時刻(ms)。出せなければ null */
@@ -40,7 +42,12 @@ function formatClock(ms: number): string {
   return h > 0 ? `${h}:${mm}:${ss}` : `${m}:${ss}`;
 }
 
-export default function RunningBanner({ runningTasks, onEnd, onFocus }: Props) {
+export default function RunningBanner({
+  runningTasks,
+  onEnd,
+  onFocus,
+  compact = false,
+}: Props) {
   // 1秒ごとに現在時刻を更新してカウントダウンを回す
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -123,40 +130,45 @@ export default function RunningBanner({ runningTasks, onEnd, onFocus }: Props) {
   if (runningTasks.length === 0) return null;
 
   return (
-    <div className="flex flex-col gap-1 border-b border-emerald-200 bg-emerald-50 px-4 py-1.5">
+    <div
+      className={`flex flex-col gap-1 border-b border-emerald-200 bg-emerald-50 py-1.5 ${
+        compact ? "px-2" : "px-4"
+      }`}
+    >
       {items.map(({ task, end, planEndHHMM }) => {
         const diff = end === null ? null : end - now;
         const overdue = diff !== null && diff < 0;
         return (
           <div
             key={task.id}
-            className={`flex flex-wrap items-center gap-x-3 gap-y-1 text-sm ${
-              overdue ? "text-red-800" : "text-emerald-900"
-            }`}
+            className={`flex items-center gap-x-2 gap-y-1 text-sm ${
+              compact ? "flex-nowrap" : "flex-wrap gap-x-3"
+            } ${overdue ? "text-red-800" : "text-emerald-900"}`}
           >
-            <span className="inline-flex items-center gap-1 font-semibold">
+            <span className="inline-flex min-w-0 flex-1 items-center gap-1 font-semibold">
               <span aria-hidden>{overdue ? "⏰" : "▶"}</span>
               <button
                 type="button"
                 onClick={() => onFocus(task)}
-                className="max-w-[40ch] truncate underline-offset-2 hover:underline"
+                className="max-w-full truncate underline-offset-2 hover:underline"
                 title="この行へ移動"
               >
                 {task.title || "(無題)"}
               </button>
             </span>
 
-            {planEndHHMM ? (
-              <span className="tabular-nums">
-                終了予定 <span className="font-semibold">{planEndHHMM}</span>
-              </span>
-            ) : (
-              <span className="text-emerald-700/70">見積なし</span>
-            )}
+            {!compact &&
+              (planEndHHMM ? (
+                <span className="tabular-nums">
+                  終了予定 <span className="font-semibold">{planEndHHMM}</span>
+                </span>
+              ) : (
+                <span className="text-emerald-700/70">見積なし</span>
+              ))}
 
             {diff !== null && (
               <span
-                className={`rounded-full px-2 py-0.5 font-mono text-xs font-semibold tabular-nums ${
+                className={`shrink-0 rounded-full px-2 py-0.5 font-mono text-xs font-semibold tabular-nums ${
                   overdue ? "bg-red-600 text-white" : "bg-emerald-600 text-white"
                 }`}
                 title={overdue ? "終了予定を過ぎています" : "残り時間"}
@@ -168,7 +180,7 @@ export default function RunningBanner({ runningTasks, onEnd, onFocus }: Props) {
             <button
               type="button"
               onClick={() => onEnd(task)}
-              className="rounded bg-emerald-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-emerald-800"
+              className="shrink-0 rounded bg-emerald-700 px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-emerald-800"
               title="このタスクを終了する"
             >
               ■ 終了
@@ -185,7 +197,7 @@ export default function RunningBanner({ runningTasks, onEnd, onFocus }: Props) {
             onClick={requestPermission}
             className="rounded border border-emerald-400 px-2 py-0.5 font-semibold hover:bg-emerald-100"
           >
-            🔔 終了時刻の通知を有効化
+            {compact ? "🔔 通知を許可" : "🔔 終了時刻の通知を有効化"}
           </button>
         </div>
       )}

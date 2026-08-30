@@ -51,6 +51,7 @@ import {
   switchBackupTarget,
 } from "./lib/backup";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
+import { type UiOverride, useIsMobile } from "./lib/useIsMobile";
 import {
   getWriterState,
   requestTakeover,
@@ -79,6 +80,7 @@ import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 import BulkAddDialog from "./components/BulkAddDialog";
 import ImportResultDialog, { type ImportResult } from "./components/ImportResultDialog";
 import ImportModeDialog, { type ImportMode } from "./components/ImportModeDialog";
+import TaskListMobile from "./components/TaskListMobile";
 import RestoreFromDriveDialog, {
   type RestoreChoice,
 } from "./components/RestoreFromDriveDialog";
@@ -146,6 +148,14 @@ export default function App() {
     const saved = localStorage.getItem("worklist3.mode");
     return saved === "work" || saved === "personal" ? saved : "all";
   });
+
+  /**
+   * 表示の強制指定(?ui=mobile|desktop)。undefined なら画面幅で自動。
+   * URLだけを拠り所にし、localStorage には残さない。強制したまま忘れて
+   * 「なぜこの表示なのか分からない」状態にしないため。
+   */
+  const [uiOverride, setUiOverride] = useState<UiOverride>(urlInit.ui);
+  const isMobile = useIsMobile(uiOverride);
 
   // エクスポートの保管形式(gzipで保存するか)。前回の選択を覚える
   const [exportGzip, setExportGzip] = useState(
@@ -259,8 +269,19 @@ export default function App() {
       q: titleFilter,
       from: customFrom,
       to: customTo,
+      ui: uiOverride,
     });
-  }, [mode, viewMode, doneFilter, plannedOnly, categoryFilter, titleFilter, customFrom, customTo]);
+  }, [
+    mode,
+    viewMode,
+    doneFilter,
+    plannedOnly,
+    categoryFilter,
+    titleFilter,
+    customFrom,
+    customTo,
+    uiOverride,
+  ]);
 
   /** undoできる操作のトーストは、元に戻せる窓(UNDO_WINDOW_MS)と同じ長さ出す */
   const showToast = useCallback((msg: string, undoable = false) => {
@@ -1855,11 +1876,17 @@ export default function App() {
         totals={totals}
         onOpenHelp={() => setHelpOpen(true)}
         readOnly={!isPrimary}
+        compact={isMobile}
       />
 
       {/* 実行中タスクのバナー(#68): いま何をしているか / いつまでに終えるかを常時表示。
           終了予定を過ぎたら赤くして通知する。表示フィルタに関わらず全実行中タスクを出す */}
-      <RunningBanner runningTasks={runningTasks} onEnd={handleEnd} onFocus={revealTask} />
+      <RunningBanner
+        runningTasks={runningTasks}
+        onEnd={handleEnd}
+        onFocus={revealTask}
+        compact={isMobile}
+      />
 
       {/* 読み取り専用バナー(#57): 別窓で編集中のとき。ここで編集すると他窓の変更を
           消す事故になるため書き込みを止めている旨を示し、明示操作で書き手を引き継げる */}
@@ -1880,7 +1907,36 @@ export default function App() {
 
       {/* 表示形式は「表ライト」のみ。カード形式(TaskCards)は一覧から外した(types.ts 参照)。
           戻すときは max-w の出し分けと TaskCards の分岐をここに復活させる */}
-      <main className="mx-auto flex w-full min-h-0 max-w-none flex-1 flex-col p-4">
+      {/* 表示を強制しているときは、それと分かるようにして自動へ戻せるようにする。
+          URLを手で直さないと戻れない状態(閉じ込め)を作らないため */}
+      {uiOverride && (
+        <div className="flex items-center justify-center gap-2 border-b border-gray-200 bg-gray-100 px-3 py-1 text-xs text-gray-600">
+          <span>
+            {uiOverride === "mobile" ? "スマホ表示" : "PC表示"}を強制しています(?ui=
+            {uiOverride})
+          </span>
+          <button
+            className="rounded border border-gray-300 bg-white px-1.5 py-0.5 hover:bg-gray-50"
+            onClick={() => setUiOverride(undefined)}
+          >
+            自動に戻す
+          </button>
+        </div>
+      )}
+
+      <main
+        className={`mx-auto flex w-full min-h-0 max-w-none flex-1 flex-col ${isMobile ? "p-2" : "p-4"}`}
+      >
+        {isMobile ? (
+          <TaskListMobile
+            tasks={visibleTasks}
+            onStart={actionHandlers.onStart}
+            onEnd={actionHandlers.onEnd}
+            onEdit={actionHandlers.onEdit}
+            onShowMemo={setMemoTarget}
+            readOnly={!isPrimary}
+          />
+        ) : (
         <TaskTable
           tasks={visibleTasks}
           dense={layout === "tableLight"}
@@ -1900,6 +1956,7 @@ export default function App() {
           readOnly={!isPrimary}
           {...actionHandlers}
         />
+        )}
         {/* <TaskCards
           tasks={visibleTasks}
           selectedIds={selectedIds}
