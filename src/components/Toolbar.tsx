@@ -586,8 +586,10 @@ export default function Toolbar(p: Props) {
                   <p className="px-3 pb-2 text-xs text-amber-700">
                     ⚠ この保存先はこの環境では使えないため、自動バックアップは動きません。
                     {p.backup.targetId === "fsa"
-                      ? "ローカルフォルダは File System Access API を使うため Chrome / Edge のみです。" +
-                        "このブラウザで控えを取るなら「Google ドライブ」を選んでください。"
+                      ? "ローカルフォルダは File System Access API を使いますが、このブラウザでは無効です" +
+                        "(Chrome / Edge なら使えます。Brave は既定で無効で、brave://flags の" +
+                        " File System Access API から有効にできます)。" +
+                        "このブラウザのまま控えを取るなら「Google ドライブ」を選んでください。"
                       : "別の保存先を選んでください。"}
                   </p>
                 ) : !p.backup.connected ? (
