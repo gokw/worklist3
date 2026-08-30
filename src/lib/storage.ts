@@ -6,6 +6,7 @@
 import type { Task } from "../types";
 import { todayStr } from "./date";
 import { actMin } from "./logic";
+import { gzipText } from "./gzip";
 
 export interface TaskRepository {
   load(): Task[];
@@ -126,15 +127,19 @@ export function tasksToCsv(tasks: Task[]): string {
 /**
  * バックアップ用: 全タスクをJSONファイルとしてダウンロード。
  * ビューの絞り込みとは無関係に、渡された全件をそのまま出力する。
+ *
+ * compress=true なら gzip で保存する(実測で約20分の1)。
+ * 圧縮したものも、インポートは中身を見て自動で展開するのでそのまま読み戻せる。
  */
-export function exportTasksAsJson(tasks: Task[]): void {
-  const blob = new Blob([serializeTasks(tasks)], {
-    type: "application/json",
-  });
+export async function exportTasksAsJson(tasks: Task[], compress = false): Promise<void> {
+  const name = `worklist3-backup-${todayStr()}.json${compress ? ".gz" : ""}`;
+  const blob = compress
+    ? new Blob([await gzipText(serializeTasks(tasks, false))], { type: "application/gzip" })
+    : new Blob([serializeTasks(tasks)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `worklist3-backup-${todayStr()}.json`;
+  a.download = name;
   // DOMに入れてからclickし、URLの解放はダウンロード開始後に回す
   // (即座に revoke するとファイルが保存されないことがある)
   document.body.appendChild(a);

@@ -27,6 +27,10 @@ import {
 import { parseClipboardText } from "./lib/clipboard";
 import { sortTasks } from "./lib/sort";
 import { exportTasksAsJson, migrateTask, repository, tasksToCsv } from "./lib/storage";
+import { decodeBackupBytes, gzipSupported } from "./lib/gzip";
+
+/** エクスポートを gzip で保存するか(localStorageに記憶) */
+const LS_EXPORT_GZIP = "worklist3.export.gzip";
 import {
   type BackupState,
   backupNow,
@@ -134,6 +138,11 @@ export default function App() {
     const saved = localStorage.getItem("worklist3.mode");
     return saved === "work" || saved === "personal" ? saved : "all";
   });
+
+  // エクスポートの保管形式(gzipで保存するか)。前回の選択を覚える
+  const [exportGzip, setExportGzip] = useState(
+    () => gzipSupported && localStorage.getItem(LS_EXPORT_GZIP) === "1"
+  );
 
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -658,8 +667,20 @@ export default function App() {
   //   replace… 全リセット読込。今のタスクを全部消して、ファイルの内容だけにする。
   const runImport = useCallback(
     async (file: File, mode: ImportMode) => {
+      let raw: unknown;
       try {
-        const raw = JSON.parse(await file.text());
+        // 圧縮された控え(.gz)も読めるようにする。判定は拡張子ではなく
+        // 中身の先頭2バイト(マジックナンバー)なので、拡張子が変わっていても読める。
+        raw = JSON.parse(await decodeBackupBytes(new Uint8Array(await file.arrayBuffer())));
+      } catch (e) {
+        showToast(
+          e instanceof SyntaxError
+            ? "インポート失敗: JSONとして読み込めませんでした"
+            : "インポート失敗: ファイルを展開できませんでした"
+        );
+        return;
+      }
+      try {
         if (!Array.isArray(raw)) {
           showToast("インポート失敗: JSONがタスクの配列ではありません");
           return;
@@ -735,8 +756,9 @@ export default function App() {
           same,
           invalid,
         });
-      } catch {
-        showToast("インポート失敗: JSONとして読み込めませんでした");
+      } catch (e) {
+        console.error("インポートに失敗しました", e);
+        showToast("インポート失敗: 取り込み中にエラーが発生しました");
       }
     },
     [tasks, upsert, showToast, pushUndo, ensureWritable, setTasks]
@@ -1780,7 +1802,15 @@ export default function App() {
         onClearSelection={clearSelection}
         onDeleteSelected={handleDeleteSelected}
         selectedCount={selectedIds.length}
-        onExport={() => exportTasksAsJson(tasks)}
+        onExport={() => void exportTasksAsJson(tasks, exportGzip)}
+        exportGzip={exportGzip}
+        gzipSupported={gzipSupported}
+        onToggleExportGzip={() => {
+          setExportGzip((v) => {
+            localStorage.setItem(LS_EXPORT_GZIP, v ? "0" : "1");
+            return !v;
+          });
+        }}
         onCopyCsv={handleCopyCsv}
         visibleCount={visibleTasks.length}
         onImportFile={handleImportFile}

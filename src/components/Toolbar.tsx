@@ -112,6 +112,11 @@ interface Props {
   onDeleteSelected: () => void;
   selectedCount: number;
   onExport: () => void;
+  /** エクスポートを gzip で保存するか */
+  exportGzip: boolean;
+  /** この環境で gzip が使えるか(使えなければ選択肢を出さない) */
+  gzipSupported: boolean;
+  onToggleExportGzip: () => void;
   /** 一覧に出ているタスクをCSVにしてクリップボードへ */
   onCopyCsv: () => void;
   /** 一覧に出ている件数(CSVコピーが何件対象かを示す) */
@@ -394,13 +399,25 @@ export default function Toolbar(p: Props) {
                     setDataMenuOpen(false);
                   }}
                 >
-                  ⬇ エクスポート(JSONを保存)
+                  ⬇ エクスポート({p.exportGzip ? "圧縮して保存 .gz" : "JSONを保存"})
                 </button>
+                {/* 保管形式の選択。圧縮すると約20分の1になるが、そのままでは中身を読めない。
+                    圧縮したものもインポートは中身を見て自動で展開する */}
+                {p.gzipSupported && (
+                  <label className="flex cursor-pointer items-center gap-2 px-3 py-1 pl-6 text-xs text-gray-500 hover:bg-gray-100">
+                    <input
+                      type="checkbox"
+                      checked={p.exportGzip}
+                      onChange={p.onToggleExportGzip}
+                    />
+                    gzipで圧縮する(.gz)
+                  </label>
+                )}
                 <button
                   className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
                   onClick={() => fileRef.current?.click()}
                 >
-                  ⬆ インポート(JSONを読込)
+                  ⬆ インポート(JSON / .gz を読込)
                 </button>
 
                 <div className="my-1 border-t border-gray-200" />
@@ -585,7 +602,7 @@ export default function Toolbar(p: Props) {
           <input
             ref={fileRef}
             type="file"
-            accept=".json,application/json"
+            accept=".json,.gz,application/json,application/gzip"
             className="hidden"
             onChange={(e) => {
               const f = e.target.files?.[0];
