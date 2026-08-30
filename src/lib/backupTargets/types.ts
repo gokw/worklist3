@@ -49,8 +49,15 @@ export interface BackupTarget {
   readonly supported: boolean;
   /** 接続先の表示名(フォルダ名 / 端末名)。未接続なら空 */
   readonly displayName: string;
-  /** 圧縮して保管するか。保存先ごとに既定が違う */
-  compress: boolean;
+  /** 圧縮して保管するか。保存先ごとに既定が違う(ローカル=非圧縮 / Drive=圧縮) */
+  readonly compress: boolean;
+  /** 保管形式を切り替える。選択は保存先ごとに記憶する */
+  setCompress(on: boolean): void;
+  /**
+   * 旧形式(切り替える前)のミラーを片付ける。ミラーは常に1つだけ残す。
+   * 2つ並ぶと、復元のときにどちらが最新か分からなくなるため。
+   */
+  removeStaleMirror(): Promise<void>;
   /**
    * 連続変更をまとめる待ち時間。
    * ローカルは即時でよいが、ネットワーク越しの保存先は通信量と電池のために長くとる。

@@ -34,6 +34,15 @@ declare global {
 
 /** ミラー・日次コピーのファイル名の接頭辞(従来と同じ) */
 const PREFIX = "worklist3";
+const LS_COMPRESS = "worklist3.backup.fsa.compress";
+
+/**
+ * モジュールの読み込み時点ではブラウザの外(テスト等)にいることがあるので、
+ * localStorage には必ずこの関数越しに触る。
+ */
+function safeStorage(): Storage | null {
+  return typeof localStorage === "undefined" ? null : localStorage;
+}
 const ROTATION_DIR = "backups";
 
 // -------------------------------------------------------------
@@ -91,7 +100,7 @@ export class FsaBackupTarget implements BackupTarget {
     typeof window !== "undefined" && typeof window.showDirectoryPicker === "function";
 
   /** ローカルはディスクが安く、人が読める方が価値が高いので既定は非圧縮 */
-  compress = false;
+  compress = safeStorage()?.getItem(LS_COMPRESS) === "1";
 
   /** ローカルディスクなので従来どおり即時に近い */
   readonly debounceMs = 1500;
@@ -100,6 +109,11 @@ export class FsaBackupTarget implements BackupTarget {
 
   get displayName(): string {
     return this.dir?.name ?? "";
+  }
+
+  setCompress(on: boolean): void {
+    this.compress = on;
+    safeStorage()?.setItem(LS_COMPRESS, on ? "1" : "0");
   }
 
   // ---- 接続 ----

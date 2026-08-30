@@ -7,6 +7,8 @@ import { DONE_FILTER_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
 import type { BackupState } from "../lib/backup";
 import { loadGcalConfig, saveGcalConfig } from "../lib/gcalClient";
+import { loadGdriveConfig, saveGdriveConfig } from "../lib/backupTargets/gdrive";
+import type { BackupTargetId } from "../lib/backupTargets/types";
 import { backupNeedsAttention } from "../lib/backup";
 
 /** ドロップダウン(その他)にまとめる期間 */
@@ -125,6 +127,13 @@ interface Props {
   onImportFile: (file: File) => void;
   /** 同期フォルダへの自動バックアップの状態 */
   backup: BackupState;
+  /** 選べる保存先(排他。同時に両方へは書かない) */
+  backupTargetOptions: { id: BackupTargetId; label: string; supported: boolean }[];
+  onSwitchBackupTarget: (id: BackupTargetId) => void;
+  /** 保管形式(gzipで圧縮するか) */
+  onSetBackupCompress: (on: boolean) => void;
+  /** Drive 上の控えを一覧して復元する */
+  onRestoreFromDrive: () => void;
   onChooseBackupDir: () => void;
   onReconnectBackupDir: () => void;
   onDisconnectBackupDir: () => void;
@@ -170,6 +179,8 @@ export default function Toolbar(p: Props) {
   const [history, setHistory] = useState<string[]>(loadFilterHistory);
   const [gcalClientId, setGcalClientId] = useState(() => loadGcalConfig().clientId);
   const [gcalCalendarId, setGcalCalendarId] = useState(() => loadGcalConfig().calendarId);
+  const [driveClientId, setDriveClientId] = useState(() => loadGdriveConfig().clientId);
+  const [driveDevice, setDriveDevice] = useState(() => loadGdriveConfig().device);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropdownActive = DROPDOWN_VIEWS.includes(p.viewMode);
   const viewMenuRef = useDismiss(viewMenuOpen, () => setViewMenuOpen(false));
@@ -512,13 +523,70 @@ export default function Toolbar(p: Props) {
                     </div>
                   ))}
 
+                {/* 保存先の選択(排他)。切替前の保存先のファイルは消さないので、
+                    新しい保存先に世代が貯まるまでの保険として残しておける */}
+                <div className="flex items-center gap-1 px-3 py-1 text-xs">
+                  <span className="text-gray-500">保存先:</span>
+                  {p.backupTargetOptions.map((t) => (
+                    <button
+                      key={t.id}
+                      disabled={!t.supported}
+                      className={
+                        t.id === p.backup.targetId
+                          ? "rounded border border-blue-500 bg-blue-50 px-1.5 py-0.5 font-semibold text-blue-700"
+                          : t.supported
+                            ? "rounded border border-gray-300 bg-white px-1.5 py-0.5 hover:bg-gray-100"
+                            : "cursor-not-allowed rounded border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-gray-400"
+                      }
+                      title={t.supported ? "" : "この環境では使えません"}
+                      onClick={() => p.onSwitchBackupTarget(t.id)}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+
+                {p.backup.targetId === "gdrive" && !p.backup.connected && (
+                  <div className="px-3 pb-2">
+                    <label className="mb-0.5 block text-[11px] text-gray-500">Client ID</label>
+                    <input
+                      type="text"
+                      className="mb-1.5 w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                      placeholder="xxxxx.apps.googleusercontent.com"
+                      value={driveClientId}
+                      onChange={(e) => {
+                        setDriveClientId(e.target.value);
+                        saveGdriveConfig({ clientId: e.target.value });
+                      }}
+                    />
+                    <label className="mb-0.5 block text-[11px] text-gray-500">
+                      端末名(ファイル名に入ります)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                      placeholder="スマホ / 自宅PC など"
+                      value={driveDevice}
+                      onChange={(e) => {
+                        setDriveDevice(e.target.value);
+                        saveGdriveConfig({ device: e.target.value });
+                      }}
+                    />
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      端末ごとに違う名前を付けてください。同じ名前だと、
+                      2台が同じファイルを上書きし合います
+                    </p>
+                  </div>
+                )}
+
                 {!p.backup.supported ? (
                   <p className="px-3 pb-2 text-xs text-gray-500">
-                    この機能は Chrome / Edge でのみ使えます
+                    この保存先はこの環境では使えません
+                    {p.backup.targetId === "fsa" && "(ローカルフォルダは Chrome / Edge のみ)"}
                   </p>
                 ) : !p.backup.connected ? (
                   <>
-                    {/* 権限切れ: 保存済みのフォルダがあるので、選び直さず再接続だけで戻せる */}
+                    {/* 権限切れ: 保存済みの接続情報があるので、選び直さず再接続だけで戻せる */}
                     {p.backup.needsReconnect && (
                       <button
                         className="block w-full px-3 py-1.5 text-left text-sm font-semibold text-amber-700 hover:bg-amber-50"
@@ -537,7 +605,9 @@ export default function Toolbar(p: Props) {
                         setDataMenuOpen(false);
                       }}
                     >
-                      📁 バックアップ先フォルダを{p.backup.needsReconnect ? "選び直す" : "選択"}
+                      {p.backup.targetId === "gdrive"
+                        ? "🔗 Google ドライブへ接続"
+                        : `📁 バックアップ先フォルダを${p.backup.needsReconnect ? "選び直す" : "選択"}`}
                     </button>
                     <p
                       className={`px-3 pb-2 text-xs ${
@@ -546,7 +616,9 @@ export default function Toolbar(p: Props) {
                     >
                       {p.backup.problem
                         ? `⚠ ${p.backup.problem}`
-                        : "OneDrive等の同期フォルダを選ぶと、変更のたびに自動で控えを取ります"}
+                        : p.backup.targetId === "gdrive"
+                          ? "マイドライブに worklist3 フォルダを作り、変更のたびに自動で控えを取ります"
+                          : "OneDrive等の同期フォルダを選ぶと、変更のたびに自動で控えを取ります"}
                     </p>
                   </>
                 ) : (
@@ -562,10 +634,24 @@ export default function Toolbar(p: Props) {
                     >
                       {p.backup.problem
                         ? `⚠ ${p.backup.problem}`
-                        : p.backup.lastSuccessAt
-                          ? `最終バックアップ: ${p.backup.lastSuccessAt} 成功`
-                          : "まだバックアップしていません"}
+                        : p.backup.offline
+                          ? "オフライン(未送信)。回線が戻ったら自動で書き込みます"
+                          : p.backup.lastSuccessAt
+                            ? `最終バックアップ: ${p.backup.lastSuccessAt} 成功`
+                            : "まだバックアップしていません"}
                     </p>
+                    {/* 保管形式。圧縮すると約20分の1になるが、そのままでは中身を読めない。
+                        圧縮した控えもインポートは中身を見て自動で展開する */}
+                    {p.backup.compressSupported && (
+                      <label className="flex cursor-pointer items-center gap-2 px-3 py-1 text-xs text-gray-500 hover:bg-gray-100">
+                        <input
+                          type="checkbox"
+                          checked={p.backup.compress}
+                          onChange={(e) => p.onSetBackupCompress(e.target.checked)}
+                        />
+                        gzipで圧縮して保管(通信量を約1/20に)
+                      </label>
+                    )}
                     <button
                       className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
                       onClick={() => {
@@ -585,6 +671,18 @@ export default function Toolbar(p: Props) {
                     >
                       🔄 再接続
                     </button>
+                    {p.backup.targetId === "gdrive" && (
+                      <button
+                        className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => {
+                          p.onRestoreFromDrive();
+                          setDataMenuOpen(false);
+                        }}
+                        title="Drive 上の控え(ミラーと日次14世代)から選んで読み込みます"
+                      >
+                        ♻ Drive の控えから復元
+                      </button>
+                    )}
                     <button
                       className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
                       onClick={() => {

@@ -40,10 +40,15 @@ import {
   getBackupState,
   notifyTasksChanged,
   reconnectBackupDir,
+  backupTargets,
+  flushBackupNow,
+  getGdriveTarget,
   restoreBackupDir,
+  setBackupCompress,
   setBackupNotifier,
   snoozeBackupWarning,
   subscribeBackup,
+  switchBackupTarget,
 } from "./lib/backup";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import {
@@ -74,6 +79,9 @@ import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 import BulkAddDialog from "./components/BulkAddDialog";
 import ImportResultDialog, { type ImportResult } from "./components/ImportResultDialog";
 import ImportModeDialog, { type ImportMode } from "./components/ImportModeDialog";
+import RestoreFromDriveDialog, {
+  type RestoreChoice,
+} from "./components/RestoreFromDriveDialog";
 import type { ParsedRow } from "./lib/bulkParse";
 
 // URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
@@ -143,6 +151,9 @@ export default function App() {
   const [exportGzip, setExportGzip] = useState(
     () => gzipSupported && localStorage.getItem(LS_EXPORT_GZIP) === "1"
   );
+
+  /** Drive の控え一覧を開いているか(§4.7) */
+  const [restoreOpen, setRestoreOpen] = useState(false);
 
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -364,7 +375,19 @@ export default function App() {
     setBackupNotifier(showToast);
     const unsubscribe = subscribeBackup(setBackupState);
     void restoreBackupDir(tasksRef.current);
-    return unsubscribe;
+    // 画面を離れるとき(タブ非表示・ページ離脱)に、溜まっている変更を書き切る。
+    // スマホでは「アプリを離れて端末を置く」が典型的な離脱なので、
+    // デバウンスを長くとるネットワーク保存先では、ここが実質の保存契機になる。
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushBackupNow();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flushBackupNow);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flushBackupNow);
+    };
   }, [showToast]);
 
   // 単一書き手ロック(多重起動の巻き戻り防止。#57)。起動時1回。
@@ -1815,6 +1838,14 @@ export default function App() {
         visibleCount={visibleTasks.length}
         onImportFile={handleImportFile}
         backup={backupState}
+        backupTargetOptions={backupTargets().map((t) => ({
+          id: t.id,
+          label: t.label,
+          supported: t.supported,
+        }))}
+        onSwitchBackupTarget={(id) => void switchBackupTarget(id, tasks)}
+        onSetBackupCompress={(on) => void setBackupCompress(on, tasks)}
+        onRestoreFromDrive={() => setRestoreOpen(true)}
         onChooseBackupDir={() => void chooseBackupDir(tasks)}
         onReconnectBackupDir={() => void reconnectBackupDir(tasks)}
         onDisconnectBackupDir={() => void disconnectBackupDir()}
@@ -1985,6 +2016,29 @@ export default function App() {
           defaultDate={selectedDate}
           onRegister={handleBulkAdd}
           onClose={() => setBulkAddOpen(false)}
+        />
+      )}
+      {restoreOpen && (
+        <RestoreFromDriveDialog
+          load={() => getGdriveTarget().listDaily()}
+          onClose={() => setRestoreOpen(false)}
+          onPick={(choice: RestoreChoice, label) => {
+            setRestoreOpen(false);
+            const target = choice.kind === "mirror" ? "mirror" : choice.entry;
+            // 取得した中身をファイルに見立てて、いつものインポート経路へ流す。
+            // 復元専用の書き換え経路は作らない(変更仕様書 §3-6/§4.7)。
+            void getGdriveTarget()
+              .readEntry(target)
+              .then((text) => {
+                setImportFile(
+                  new File([text], `Drive: ${label}`, { type: "application/json" })
+                );
+              })
+              .catch((e) => {
+                console.error("控えの取得に失敗しました", e);
+                showToast("控えを取得できませんでした");
+              });
+          }}
         />
       )}
       {importFile && (

@@ -13,8 +13,10 @@
 import type { Task } from "../types";
 import { serializeTasks } from "./storage";
 import { addToDate, nowHHMM, todayStr } from "./date";
+import { gzipSupported } from "./gzip";
 import type { BackupBody, BackupTarget, BackupTargetId, ConnectResult } from "./backupTargets/types";
 import { FsaBackupTarget } from "./backupTargets/fsa";
+import { GdriveBackupTarget } from "./backupTargets/gdrive";
 
 /** ローテーションの世代保持数(日)。これより古い日付のファイルは自動削除 */
 const KEEP_DAYS = 14;
@@ -42,6 +44,10 @@ export interface BackupState {
    * 移動のたびに警告を出すと実用に耐えないため、これは異常として扱わない。
    */
   offline: boolean;
+  /** 圧縮して保管するか */
+  compress: boolean;
+  /** この環境で gzip が使えるか(使えなければ選択肢を出さない) */
+  compressSupported: boolean;
   /** 警告を一時停止している期限(ms)。0=停止していない。Issue #20 */
   snoozedUntil: number;
 }
@@ -50,12 +56,23 @@ export interface BackupState {
 // 保存先
 // -------------------------------------------------------------
 const fsaTarget = new FsaBackupTarget();
-const targets: Partial<Record<BackupTargetId, BackupTarget>> = {
+const gdriveTarget = new GdriveBackupTarget();
+const targets: Record<BackupTargetId, BackupTarget> = {
   fsa: fsaTarget,
-  // gdrive は後続で追加する
+  gdrive: gdriveTarget,
 };
 
-let current: BackupTarget = fsaTarget;
+/** 前回選んでいた保存先。使えない環境ならローカルへ落とす */
+const LS_TARGET = "worklist3.backup.target";
+
+function initialTarget(): BackupTarget {
+  // 読み込み時点ではブラウザの外(テスト等)にいることがある
+  const saved = typeof localStorage === "undefined" ? null : localStorage.getItem(LS_TARGET);
+  const t = saved === "gdrive" ? gdriveTarget : fsaTarget;
+  return t.supported ? t : fsaTarget;
+}
+
+let current: BackupTarget = initialTarget();
 
 /** 登録済みの保存先(UIの選択肢。非対応の環境のものも含む) */
 export function backupTargets(): BackupTarget[] {
@@ -79,6 +96,8 @@ let state: BackupState = {
   problem: "",
   needsReconnect: false,
   offline: false,
+  compress: current.compress,
+  compressSupported: gzipSupported,
   snoozedUntil: 0,
 };
 
@@ -367,6 +386,69 @@ export async function disconnectBackupDir(): Promise<void> {
     needsReconnect: false,
     offline: false,
   });
+}
+
+// -------------------------------------------------------------
+// 保存先の切替・保管形式
+// -------------------------------------------------------------
+/** いまの保存先の実体(Drive固有の操作が要るときだけ使う) */
+export function currentBackupTarget(): BackupTarget {
+  return current;
+}
+
+export function getGdriveTarget(): GdriveBackupTarget {
+  return gdriveTarget;
+}
+
+/**
+ * 保存先を切り替える。切替前の保存先のファイルは消さない
+ * (新しい保存先の世代が14日ぶん貯まるまでの保険になる)。
+ */
+export async function switchBackupTarget(id: BackupTargetId, tasks: Task[]): Promise<void> {
+  if (current.id === id) return;
+  const next = targets[id];
+  if (!next?.supported) return;
+  // 進行中の書き込み予約は捨てる(切替先へ書くべきなので)
+  window.clearTimeout(flushTimer);
+  pending = null;
+  current = next;
+  if (typeof localStorage !== "undefined") localStorage.setItem(LS_TARGET, id);
+  setState({
+    supported: next.supported,
+    targetId: next.id,
+    targetLabel: next.label,
+    compress: next.compress,
+    connected: false,
+    dirName: "",
+    lastSuccessAt: "",
+    problem: "",
+    needsReconnect: false,
+    offline: false,
+  });
+  warned = false;
+  // 記憶している接続情報があれば黙って復帰する(無ければ未接続のまま)
+  await applyConnect(await next.restore(), tasks);
+}
+
+/**
+ * 保管形式(圧縮の有無)を切り替える。
+ * 切替後に旧形式のミラーを片付けて、ミラーが常に1つだけになるようにする
+ * (2つ並ぶと、復元のときにどちらが最新か分からなくなる)。
+ */
+export async function setBackupCompress(on: boolean, tasks: Task[]): Promise<void> {
+  if (!gzipSupported || current.compress === on) return;
+  current.setCompress(on);
+  setState({ compress: on });
+  if (state.connected) {
+    // 先に新形式で書き切ってから、旧形式を片付ける。
+    // 逆順だと、書き込みに失敗したときに控えが1つも無い瞬間ができる。
+    await writeBackup(tasks, true);
+    if (!state.problem) {
+      await current
+        .removeStaleMirror()
+        .catch((e) => console.error("旧形式のミラーを片付けられませんでした", e));
+    }
+  }
 }
 
 // -------------------------------------------------------------
