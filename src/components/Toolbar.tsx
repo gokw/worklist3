@@ -134,6 +134,10 @@ interface Props {
   onSetBackupCompress: (on: boolean) => void;
   /** Drive 上の控えを一覧して復元する */
   onRestoreFromDrive: () => void;
+  /** 「ここにいる」記録を開く(Issue #86)。モバイルでのみ出す */
+  onRecordLocation: () => void;
+  /** この環境で位置情報が使えるか(使えなければボタンを出さない) */
+  geoSupported: boolean;
   onChooseBackupDir: () => void;
   onReconnectBackupDir: () => void;
   onDisconnectBackupDir: () => void;
@@ -304,6 +308,20 @@ export default function Toolbar(p: Props) {
           >
             ＋
           </button>
+
+          {/* 「ここにいる」記録(Issue #86)。出先で片手で押す機能なのでモバイルだけに出す。
+              位置情報が使えない環境では出さない */}
+          {p.compact && p.geoSupported && (
+            <button
+              className={`${iconBtn} text-gray-700`}
+              disabled={p.readOnly}
+              onClick={p.onRecordLocation}
+              title="いまいる場所を記録する"
+              aria-label="ここにいる記録"
+            >
+              📍
+            </button>
+          )}
           {/* ここから先は選択操作やPC上のアプリ(Teams/Outlook)を前提にした機能。
               モバイルでは使えないか使わないので出さない */}
           {!p.compact && (

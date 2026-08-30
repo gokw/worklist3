@@ -52,6 +52,7 @@ import {
 } from "./lib/backup";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import { type UiOverride, useIsMobile } from "./lib/useIsMobile";
+import { type GeoPoint, geoSupported, locationMemo, mapsUrl, resolveTitle } from "./lib/geo";
 import {
   getWriterState,
   requestTakeover,
@@ -81,6 +82,7 @@ import BulkAddDialog from "./components/BulkAddDialog";
 import ImportResultDialog, { type ImportResult } from "./components/ImportResultDialog";
 import ImportModeDialog, { type ImportMode } from "./components/ImportModeDialog";
 import TaskListMobile from "./components/TaskListMobile";
+import LocationRecordDialog from "./components/LocationRecordDialog";
 import RestoreFromDriveDialog, {
   type RestoreChoice,
 } from "./components/RestoreFromDriveDialog";
@@ -164,6 +166,9 @@ export default function App() {
 
   /** Drive の控え一覧を開いているか(§4.7) */
   const [restoreOpen, setRestoreOpen] = useState(false);
+
+  /** 「ここにいる」記録のダイアログを開いているか(Issue #86) */
+  const [locationOpen, setLocationOpen] = useState(false);
 
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -671,6 +676,33 @@ export default function App() {
   );
 
   // 複数タスクの一括登録(Issue #9)。日付省略行は選択日、区分は今のビューに合わせる
+  /**
+   * 「ここにいる」記録(Issue #86)。いまいる場所を1件のタスクとして書き留める。
+   * 開始も終了も現在時刻にして、その場で完了した記録として残す
+   * (滞在時間を測るのではなく「そこにいた」ことを残すのが目的)。
+   * 座標はメモ、マップURLはリンクに入れる。Task の構造は変えない。
+   */
+  const handleRecordLocation = useCallback(
+    (title: string, point: GeoPoint) => {
+      const now = nowHHMM();
+      const task = createTask({
+        title: resolveTitle(title, point),
+        scope: "personal",
+        date: todayStr(),
+        actStart: now,
+        actEnd: now,
+        memos: [locationMemo(point), "", ""],
+        links: [mapsUrl(point.lat, point.lng)],
+      });
+      pushUndo("ここにいる記録");
+      upsert([task]);
+      setLocationOpen(false);
+      showToast("ここにいる記録を追加しました", true);
+      revealTask(task);
+    },
+    [pushUndo, upsert, showToast, revealTask]
+  );
+
   const handleBulkAdd = useCallback(
     (rows: ParsedRow[]) => {
       const created = rows.map((r) =>
@@ -1867,6 +1899,8 @@ export default function App() {
         onSwitchBackupTarget={(id) => void switchBackupTarget(id, tasks)}
         onSetBackupCompress={(on) => void setBackupCompress(on, tasks)}
         onRestoreFromDrive={() => setRestoreOpen(true)}
+        onRecordLocation={() => setLocationOpen(true)}
+        geoSupported={geoSupported}
         onChooseBackupDir={() => void chooseBackupDir(tasks)}
         onReconnectBackupDir={() => void reconnectBackupDir(tasks)}
         onDisconnectBackupDir={() => void disconnectBackupDir()}
@@ -2073,6 +2107,12 @@ export default function App() {
           defaultDate={selectedDate}
           onRegister={handleBulkAdd}
           onClose={() => setBulkAddOpen(false)}
+        />
+      )}
+      {locationOpen && (
+        <LocationRecordDialog
+          onRecord={handleRecordLocation}
+          onClose={() => setLocationOpen(false)}
         />
       )}
       {restoreOpen && (
