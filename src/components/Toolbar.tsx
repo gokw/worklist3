@@ -146,6 +146,12 @@ interface Props {
   onOpenHelp: () => void;
   /** 読み取り専用(別窓が書き手のとき)。作成・変更系ボタンを無効化する。#57 */
   readOnly?: boolean;
+  /**
+   * モバイル表示(狭い画面)。絞り込み類を既定で畳み、
+   * 選択操作やPC前提の機能(取込・一括登録など)を出さない。
+   * 広い画面では従来どおり全部出す。
+   */
+  compact?: boolean;
 }
 
 const chip = (active: boolean) =>
@@ -176,6 +182,8 @@ const modeChip = (m: WorkMode, active: boolean) => {
 export default function Toolbar(p: Props) {
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [dataMenuOpen, setDataMenuOpen] = useState(false);
+  /** モバイルで絞り込み類を開いているか。毎回閉じた状態から始める */
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [history, setHistory] = useState<string[]>(loadFilterHistory);
   const [gcalClientId, setGcalClientId] = useState(() => loadGcalConfig().clientId);
   const [gcalCalendarId, setGcalCalendarId] = useState(() => loadGcalConfig().calendarId);
@@ -277,10 +285,13 @@ export default function Toolbar(p: Props) {
           </div>
         )}
 
-        <span className="ml-2 text-xs text-gray-500">
-          見積 {formatMin(p.totals.estimate) || "0m"} / 実績 {formatMin(p.totals.actual) || "0m"} / 残り{" "}
-          {formatMin(p.totals.remain) || "0m"}
-        </span>
+        {/* 合計はモバイルでは1段目に入らないので、絞り込みの折りたたみの中へ移す */}
+        {!p.compact && (
+          <span className="ml-2 text-xs text-gray-500">
+            見積 {formatMin(p.totals.estimate) || "0m"} / 実績 {formatMin(p.totals.actual) || "0m"} /
+            残り {formatMin(p.totals.remain) || "0m"}
+          </span>
+        )}
 
         <div className="relative ml-auto flex flex-wrap items-center gap-2">
           {/* 作成系(読み取り専用の窓では無効化。#57) */}
@@ -293,6 +304,10 @@ export default function Toolbar(p: Props) {
           >
             ＋
           </button>
+          {/* ここから先は選択操作やPC上のアプリ(Teams/Outlook)を前提にした機能。
+              モバイルでは使えないか使わないので出さない */}
+          {!p.compact && (
+          <>
           <button
             className={`${iconBtn} text-gray-700`}
             disabled={p.readOnly}
@@ -367,6 +382,9 @@ export default function Toolbar(p: Props) {
           </button>
 
           <span className={toolDivider} aria-hidden />
+          </>
+          )}
+
           {/* バックアップ異常の警告(Issue #20)。異常時だけ出す。押すと💾メニューへ。
               スヌーズ中は控えめな「停止中」表示にする */}
           {backupNeedsAttention(p.backup) &&
@@ -737,6 +755,20 @@ export default function Toolbar(p: Props) {
           ))}
         </div>
 
+        {/* モバイルは絞り込み類を畳む。ここが開かないと画面の半分が操作欄で埋まる */}
+        {p.compact && (
+          <button
+            className={chip(filtersOpen)}
+            onClick={() => setFiltersOpen((v) => !v)}
+            title="絞り込みの表示/非表示"
+            aria-expanded={filtersOpen}
+          >
+            🔍 絞り込み
+          </button>
+        )}
+
+        {(!p.compact || filtersOpen) && (
+          <>
         <span className="mx-1 text-gray-300">|</span>
 
         {/* 期間: 単独[今日以降] + ドロップダウン[今日/全期間/カスタム] */}
@@ -846,7 +878,9 @@ export default function Toolbar(p: Props) {
 
         <span className="mx-1 text-gray-300">|</span>
 
-        {/* 選択操作(一括編集・連続時刻の対象) */}
+        {/* 選択操作(一括編集・連続時刻の対象)。モバイルでは使わないので出さない */}
+        {!p.compact && (
+          <>
         <button
           className="rounded-full border border-gray-300 bg-white px-3 py-1 text-xs text-gray-600 hover:bg-gray-100"
           onClick={p.onSelectAllVisible}
@@ -862,6 +896,8 @@ export default function Toolbar(p: Props) {
           >
             選択解除 ({p.selectedCount})
           </button>
+        )}
+          </>
         )}
 
         <span className="mx-1 text-gray-300">|</span>
@@ -901,6 +937,16 @@ export default function Toolbar(p: Props) {
             </option>
           ))}
         </select>
+
+        {/* 1段目に入らない合計は、モバイルではここへ */}
+        {p.compact && (
+          <span className="w-full text-xs text-gray-500">
+            見積 {formatMin(p.totals.estimate) || "0m"} / 実績 {formatMin(p.totals.actual) || "0m"} /
+            残り {formatMin(p.totals.remain) || "0m"}
+          </span>
+        )}
+          </>
+        )}
       </div>
     </div>
   );

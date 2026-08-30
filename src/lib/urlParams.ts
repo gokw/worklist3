@@ -7,8 +7,10 @@
 //   &planned=1|0                                (予定のみ=開始予定時刻ありに絞る)
 //   &category=...                               (カテゴリ絞り込み)
 //   &q=...                                      (タスク名フィルタ。/パターン/ で正規表現)
+//   &ui=mobile|desktop|auto                     (表示の強制。既定は画面幅で自動)
 // ==============================================================
 import type { DoneFilter, ViewMode, WorkMode } from "../types";
+import type { UiOverride } from "./useIsMobile";
 
 const VIEWS: ViewMode[] = ["todayOnward", "today", "everything", "custom"];
 const DONE_FILTERS: DoneFilter[] = ["all", "onlyDone", "hideDone"];
@@ -23,6 +25,8 @@ export interface UrlSettings {
   planned?: boolean;
   category?: string;
   q?: string;
+  /** 表示の強制(mobile/desktop)。未指定は画面幅で自動 */
+  ui?: UiOverride;
 }
 
 /** 現在のURLから設定を読む(不正な値は無視) */
@@ -57,6 +61,10 @@ export function readUrlSettings(): UrlSettings {
   const q = p.get("q");
   if (q) s.q = q;
 
+  // ui=auto と不正な値は「自動」= undefined のまま
+  const ui = p.get("ui");
+  if (ui === "mobile" || ui === "desktop") s.ui = ui;
+
   return s;
 }
 
@@ -70,6 +78,8 @@ export function writeUrlSettings(s: {
   q: string;
   from: string;
   to: string;
+  /** 強制指定。自動(undefined)のときはURLへ書かない */
+  ui: UiOverride;
 }) {
   if (typeof window === "undefined") return;
   const p = new URLSearchParams();
@@ -83,6 +93,9 @@ export function writeUrlSettings(s: {
   if (s.planned) p.set("planned", "1");
   if (s.category) p.set("category", s.category);
   if (s.q) p.set("q", s.q);
+  // 自動のときは書かない。書いてしまうと、スマートフォンで開いたURLをそのまま
+  // PCで開いたときにモバイル表示が強制されてしまう(既定値を書かない方針とも一致)
+  if (s.ui) p.set("ui", s.ui);
   const qs = p.toString();
   window.history.replaceState(null, "", qs ? `?${qs}` : window.location.pathname);
 }
