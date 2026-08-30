@@ -8,39 +8,13 @@
 //   ・トークン取得はユーザー操作(📅ボタン)起点で呼ぶ(ポップアップブロック回避)
 // ==============================================================
 import type { CalendarClient, CalendarEventInput, CalResult } from "./gcalMap";
+import { type TokenClient, loadGis } from "./googleAuth";
 
 const SCOPE = "https://www.googleapis.com/auth/calendar.events";
-const GIS_SRC = "https://accounts.google.com/gsi/client";
 const API_BASE = "https://www.googleapis.com/calendar/v3/calendars";
 
 const LS_CLIENT_ID = "worklist3.gcal.clientId";
 const LS_CALENDAR_ID = "worklist3.gcal.calendarId";
-
-// ---- GIS(Google Identity Services)の最小型定義 ----
-interface TokenResponse {
-  access_token?: string;
-  error?: string;
-}
-interface TokenClient {
-  requestAccessToken(opts?: { prompt?: string }): void;
-  callback: (resp: TokenResponse) => void;
-}
-declare global {
-  interface Window {
-    google?: {
-      accounts: {
-        oauth2: {
-          initTokenClient(cfg: {
-            client_id: string;
-            scope: string;
-            callback: (resp: TokenResponse) => void;
-          }): TokenClient;
-          revoke(token: string, done?: () => void): void;
-        };
-      };
-    };
-  }
-}
 
 // -------------------------------------------------------------
 // 設定(Client ID / Calendar ID)。プレーン文字列でlocalStorageに持つ
@@ -68,22 +42,6 @@ export function saveGcalConfig(c: Partial<GcalConfig>): void {
 let accessToken: string | null = null;
 let tokenClient: TokenClient | null = null;
 let tokenClientId: string | null = null;
-let gisLoading: Promise<void> | null = null;
-
-function loadGis(): Promise<void> {
-  if (window.google?.accounts?.oauth2) return Promise.resolve();
-  if (gisLoading) return gisLoading;
-  gisLoading = new Promise((resolve, reject) => {
-    const s = document.createElement("script");
-    s.src = GIS_SRC;
-    s.async = true;
-    s.defer = true;
-    s.onload = () => resolve();
-    s.onerror = () => reject(new Error("Google認証スクリプトを読み込めませんでした"));
-    document.head.appendChild(s);
-  });
-  return gisLoading;
-}
 
 async function ensureTokenClient(clientId: string): Promise<TokenClient> {
   await loadGis();

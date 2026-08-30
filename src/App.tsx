@@ -27,6 +27,10 @@ import {
 import { parseClipboardText } from "./lib/clipboard";
 import { sortTasks } from "./lib/sort";
 import { exportTasksAsJson, migrateTask, repository, tasksToCsv } from "./lib/storage";
+import { decodeBackupBytes, gzipSupported } from "./lib/gzip";
+
+/** エクスポートを gzip で保存するか(localStorageに記憶) */
+const LS_EXPORT_GZIP = "worklist3.export.gzip";
 import {
   type BackupState,
   backupNow,
@@ -36,10 +40,15 @@ import {
   getBackupState,
   notifyTasksChanged,
   reconnectBackupDir,
+  backupTargets,
+  flushBackupNow,
+  getGdriveTarget,
   restoreBackupDir,
+  setBackupCompress,
   setBackupNotifier,
   snoozeBackupWarning,
   subscribeBackup,
+  switchBackupTarget,
 } from "./lib/backup";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import {
@@ -70,6 +79,9 @@ import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 import BulkAddDialog from "./components/BulkAddDialog";
 import ImportResultDialog, { type ImportResult } from "./components/ImportResultDialog";
 import ImportModeDialog, { type ImportMode } from "./components/ImportModeDialog";
+import RestoreFromDriveDialog, {
+  type RestoreChoice,
+} from "./components/RestoreFromDriveDialog";
 import type { ParsedRow } from "./lib/bulkParse";
 
 // URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
@@ -134,6 +146,14 @@ export default function App() {
     const saved = localStorage.getItem("worklist3.mode");
     return saved === "work" || saved === "personal" ? saved : "all";
   });
+
+  // エクスポートの保管形式(gzipで保存するか)。前回の選択を覚える
+  const [exportGzip, setExportGzip] = useState(
+    () => gzipSupported && localStorage.getItem(LS_EXPORT_GZIP) === "1"
+  );
+
+  /** Drive の控え一覧を開いているか(§4.7) */
+  const [restoreOpen, setRestoreOpen] = useState(false);
 
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -355,7 +375,19 @@ export default function App() {
     setBackupNotifier(showToast);
     const unsubscribe = subscribeBackup(setBackupState);
     void restoreBackupDir(tasksRef.current);
-    return unsubscribe;
+    // 画面を離れるとき(タブ非表示・ページ離脱)に、溜まっている変更を書き切る。
+    // スマホでは「アプリを離れて端末を置く」が典型的な離脱なので、
+    // デバウンスを長くとるネットワーク保存先では、ここが実質の保存契機になる。
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushBackupNow();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flushBackupNow);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flushBackupNow);
+    };
   }, [showToast]);
 
   // 単一書き手ロック(多重起動の巻き戻り防止。#57)。起動時1回。
@@ -658,8 +690,20 @@ export default function App() {
   //   replace… 全リセット読込。今のタスクを全部消して、ファイルの内容だけにする。
   const runImport = useCallback(
     async (file: File, mode: ImportMode) => {
+      let raw: unknown;
       try {
-        const raw = JSON.parse(await file.text());
+        // 圧縮された控え(.gz)も読めるようにする。判定は拡張子ではなく
+        // 中身の先頭2バイト(マジックナンバー)なので、拡張子が変わっていても読める。
+        raw = JSON.parse(await decodeBackupBytes(new Uint8Array(await file.arrayBuffer())));
+      } catch (e) {
+        showToast(
+          e instanceof SyntaxError
+            ? "インポート失敗: JSONとして読み込めませんでした"
+            : "インポート失敗: ファイルを展開できませんでした"
+        );
+        return;
+      }
+      try {
         if (!Array.isArray(raw)) {
           showToast("インポート失敗: JSONがタスクの配列ではありません");
           return;
@@ -735,8 +779,9 @@ export default function App() {
           same,
           invalid,
         });
-      } catch {
-        showToast("インポート失敗: JSONとして読み込めませんでした");
+      } catch (e) {
+        console.error("インポートに失敗しました", e);
+        showToast("インポート失敗: 取り込み中にエラーが発生しました");
       }
     },
     [tasks, upsert, showToast, pushUndo, ensureWritable, setTasks]
@@ -1780,11 +1825,27 @@ export default function App() {
         onClearSelection={clearSelection}
         onDeleteSelected={handleDeleteSelected}
         selectedCount={selectedIds.length}
-        onExport={() => exportTasksAsJson(tasks)}
+        onExport={() => void exportTasksAsJson(tasks, exportGzip)}
+        exportGzip={exportGzip}
+        gzipSupported={gzipSupported}
+        onToggleExportGzip={() => {
+          setExportGzip((v) => {
+            localStorage.setItem(LS_EXPORT_GZIP, v ? "0" : "1");
+            return !v;
+          });
+        }}
         onCopyCsv={handleCopyCsv}
         visibleCount={visibleTasks.length}
         onImportFile={handleImportFile}
         backup={backupState}
+        backupTargetOptions={backupTargets().map((t) => ({
+          id: t.id,
+          label: t.label,
+          supported: t.supported,
+        }))}
+        onSwitchBackupTarget={(id) => void switchBackupTarget(id, tasks)}
+        onSetBackupCompress={(on) => void setBackupCompress(on, tasks)}
+        onRestoreFromDrive={() => setRestoreOpen(true)}
         onChooseBackupDir={() => void chooseBackupDir(tasks)}
         onReconnectBackupDir={() => void reconnectBackupDir(tasks)}
         onDisconnectBackupDir={() => void disconnectBackupDir()}
@@ -1955,6 +2016,29 @@ export default function App() {
           defaultDate={selectedDate}
           onRegister={handleBulkAdd}
           onClose={() => setBulkAddOpen(false)}
+        />
+      )}
+      {restoreOpen && (
+        <RestoreFromDriveDialog
+          load={() => getGdriveTarget().listDaily()}
+          onClose={() => setRestoreOpen(false)}
+          onPick={(choice: RestoreChoice, label) => {
+            setRestoreOpen(false);
+            const target = choice.kind === "mirror" ? "mirror" : choice.entry;
+            // 取得した中身をファイルに見立てて、いつものインポート経路へ流す。
+            // 復元専用の書き換え経路は作らない(変更仕様書 §3-6/§4.7)。
+            void getGdriveTarget()
+              .readEntry(target)
+              .then((text) => {
+                setImportFile(
+                  new File([text], `Drive: ${label}`, { type: "application/json" })
+                );
+              })
+              .catch((e) => {
+                console.error("控えの取得に失敗しました", e);
+                showToast("控えを取得できませんでした");
+              });
+          }}
         />
       )}
       {importFile && (
