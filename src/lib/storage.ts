@@ -85,10 +85,13 @@ export const repository: TaskRepository = new LocalStorageRepository();
 
 /**
  * 全タスクをJSON文字列にする(エクスポートと自動バックアップで共通)。
- * 人が読める整形済み。インポートがそのまま読み戻せる形式。
+ * インポートがそのまま読み戻せる形式。
+ *
+ * 既定は整形済み(人が読める)。gzip で保管するときだけ整形を外す —
+ * どうせそのままでは読まないうえ、整形は実測で全体の約27%を占めるため。
  */
-export function serializeTasks(tasks: Task[]): string {
-  return JSON.stringify(tasks, null, 2);
+export function serializeTasks(tasks: Task[], pretty = true): string {
+  return pretty ? JSON.stringify(tasks, null, 2) : JSON.stringify(tasks);
 }
 
 const CSV_HEADER = ["日付", "開始", "終了", "実績分", "タスク名", "カテゴリ"];
