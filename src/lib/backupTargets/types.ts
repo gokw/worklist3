@@ -115,3 +115,33 @@ export function dailyFileDate(prefix: string, name: string): string | null {
 export function mirrorFileName(prefix: string, compress: boolean): string {
   return `${prefix}.json${compress ? ".gz" : ""}`;
 }
+
+// --------------------------------------------------------------
+// 手番(#91)
+//   グループを共有する端末のうち、いま更新してよい1台。
+//   判定には必ず deviceId を使う。グループ名や端末名は利用者が手で打つ値で
+//   重複し得るため、それで判定すると2台が同時に「手番あり」になる。
+// --------------------------------------------------------------
+
+export interface OwnerRecord {
+  /** 手番を持つ端末の識別子。判定に使う唯一の値 */
+  deviceId: string;
+  /** バナーに出す表示名。空なら「別の端末」と表示する */
+  deviceName: string;
+  /** 手番を取得した時刻(ISO) */
+  since: string;
+}
+
+/**
+ * 降格した端末の未送信データを救い出すファイルの名前。
+ * 日次コピーの規約 `<prefix>-YYYY-MM-DD.json(.gz)` に**一致させない**こと。
+ * 一致するとローテーション掃除に巻き込まれて消える。
+ */
+export function rescueFileName(
+  prefix: string,
+  deviceId: string,
+  stamp: string,
+  compress: boolean
+): string {
+  return `${prefix}-救出-${deviceId.slice(0, 6)}-${stamp}.json${compress ? ".gz" : ""}`;
+}

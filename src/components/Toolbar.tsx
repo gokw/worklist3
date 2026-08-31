@@ -6,6 +6,7 @@ import type { DoneFilter, ViewMode, WorkMode } from "../types";
 import { DONE_FILTER_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
 import type { BackupState } from "../lib/backup";
+import { ownerLabel, type BatonState } from "../lib/baton";
 import { loadGcalConfig, saveGcalConfig } from "../lib/gcalClient";
 import { loadGdriveConfig, saveGdriveConfig } from "../lib/backupTargets/gdrive";
 import type { BackupTargetId } from "../lib/backupTargets/types";
@@ -127,6 +128,13 @@ interface Props {
   onImportFile: (file: File) => void;
   /** 同期フォルダへの自動バックアップの状態 */
   backup: BackupState;
+  /** 端末の手番(#91)。グループ名の補足文と、更新側の表示に使う */
+  baton: BatonState;
+  /** 接続中のフォルダID(2台が同じデータを見ているかの確認用) */
+  folderId: string;
+  onToggleBaton: (on: boolean) => void;
+  /** 端末名の変更。手番ファイルの表示名も直す必要がある(#91 §4.2) */
+  onDeviceNameChange: (name: string) => void;
   /** 選べる保存先(排他。同時に両方へは書かない) */
   backupTargetOptions: { id: BackupTargetId; label: string; supported: boolean }[];
   onSwitchBackupTarget: (id: BackupTargetId) => void;
@@ -192,7 +200,8 @@ export default function Toolbar(p: Props) {
   const [gcalClientId, setGcalClientId] = useState(() => loadGcalConfig().clientId);
   const [gcalCalendarId, setGcalCalendarId] = useState(() => loadGcalConfig().calendarId);
   const [driveClientId, setDriveClientId] = useState(() => loadGdriveConfig().clientId);
-  const [driveDevice, setDriveDevice] = useState(() => loadGdriveConfig().device);
+  const [driveGroup, setDriveGroup] = useState(() => loadGdriveConfig().group);
+  const [driveDeviceName, setDriveDeviceName] = useState(() => loadGdriveConfig().deviceName);
   const fileRef = useRef<HTMLInputElement>(null);
   const dropdownActive = DROPDOWN_VIEWS.includes(p.viewMode);
   const viewMenuRef = useDismiss(viewMenuOpen, () => setViewMenuOpen(false));
@@ -599,22 +608,72 @@ export default function Toolbar(p: Props) {
                       }}
                     />
                     <label className="mb-0.5 block text-[11px] text-gray-500">
-                      端末名(ファイル名に入ります)
+                      グループ名(同じ名前の端末どうしで、同じデータを共有します)
+                    </label>
+                    <input
+                      type="text"
+                      className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
+                      placeholder="わたしのタスク など"
+                      value={driveGroup}
+                      onChange={(e) => {
+                        setDriveGroup(e.target.value);
+                        saveGdriveConfig({ group: e.target.value });
+                      }}
+                    />
+                    {/* 同じ値にしてよいかは手番制の有無で真逆になる(#91 §6) */}
+                    <p className="mt-1 text-[11px] text-gray-500">
+                      {p.baton.enabled
+                        ? "共有したい端末には同じ名前を付けてください"
+                        : "端末ごとに違う名前を付けてください（同じだと上書きし合います）"}
+                    </p>
+
+                    <label className="mb-0.5 mt-2 block text-[11px] text-gray-500">
+                      端末名(他の端末の画面に出ます。任意)
                     </label>
                     <input
                       type="text"
                       className="w-full rounded border border-gray-300 px-2 py-1 text-xs"
                       placeholder="スマホ / 自宅PC など"
-                      value={driveDevice}
+                      value={driveDeviceName}
                       onChange={(e) => {
-                        setDriveDevice(e.target.value);
-                        saveGdriveConfig({ device: e.target.value });
+                        setDriveDeviceName(e.target.value);
+                        saveGdriveConfig({ deviceName: e.target.value });
+                        p.onDeviceNameChange(e.target.value);
                       }}
                     />
-                    <p className="mt-1 text-[11px] text-gray-500">
-                      端末ごとに違う名前を付けてください。同じ名前だと、
-                      2台が同じファイルを上書きし合います
-                    </p>
+
+                    {/* 2台が同じデータを見ているかは、これが一致するかで確かめられる(#91 §4.0a) */}
+                    {p.backup.connected && p.folderId && (
+                      <p className="mt-2 break-all text-[11px] text-gray-500">
+                        フォルダID: <code className="text-gray-600">{p.folderId}</code>
+                        <br />
+                        2台で一致していることを確認してください
+                      </p>
+                    )}
+
+                    {/* 手番制(#91)。既定OFF。1台運用に余計な仕組みを背負わせない */}
+                    {p.backup.connected && (
+                      <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2">
+                        <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
+                          <input
+                            type="checkbox"
+                            checked={p.baton.enabled}
+                            onChange={(e) => p.onToggleBaton(e.target.checked)}
+                          />
+                          複数台で使う(更新する端末を1台に決める)
+                        </label>
+                        {p.baton.enabled && (
+                          <p className="mt-1 text-[11px] text-gray-500">
+                            いまの更新側:{" "}
+                            {p.baton.role === "owner"
+                              ? "この端末"
+                              : p.baton.role === "guest"
+                                ? ownerLabel(p.baton.ownerName)
+                                : "未設定"}
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
 

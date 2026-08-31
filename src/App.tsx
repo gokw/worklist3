@@ -49,7 +49,23 @@ import {
   snoozeBackupWarning,
   subscribeBackup,
   switchBackupTarget,
+  backupFolderId,
+  batonAvailable,
+  batonGroupIsEmpty,
+  claimBaton,
+  planTakeover,
+  refreshBaton,
+  syncBatonDeviceName,
+  type TakeoverPlan,
 } from "./lib/backup";
+import {
+  cacheRole,
+  setBatonEnabled,
+  getBatonState,
+  subscribeBaton,
+  setBatonState,
+  type BatonState,
+} from "./lib/baton";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import { type UiOverride, useIsMobile } from "./lib/useIsMobile";
 import { type GeoPoint, geoSupported, locationMemo, mapsUrl, resolveTitle } from "./lib/geo";
@@ -76,6 +92,8 @@ import { acquireToken, createGoogleCalendarClient, loadGcalConfig, resetGcalAuth
 import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
 import MemoDialog from "./components/MemoDialog";
+import BatonBanner from "./components/BatonBanner";
+import { loadGdriveConfig } from "./lib/backupTargets/gdrive";
 import RunningBanner from "./components/RunningBanner";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
 import BulkAddDialog from "./components/BulkAddDialog";
@@ -203,6 +221,9 @@ export default function App() {
   const isPrimaryRef = useRef(isPrimary);
   /** 起動直後の読み取り専用フラッシュでバナーが点滅しないよう、少し待ってからUIを出す(#57 §5-D) */
   const [roleSettled, setRoleSettled] = useState(false);
+  // 端末の手番(#91)。窓ロック(#57)とは別の層で、こちらが優先して表示される
+  const [baton, setBaton] = useState<BatonState>(() => getBatonState());
+  const batonRef = useRef(baton);
   const toastTimer = useRef<number | undefined>(undefined);
   /** 起動時1回だけ走る副作用から最新のタスクを見るための控え */
   const tasksRef = useRef(tasks);
@@ -251,6 +272,9 @@ export default function App() {
     // 読み取り専用の窓は localStorage にもバックアップにも一切書かない(#57 §4.3)。
     // これが「古いスナップショットによる後勝ち上書き=巻き戻り」を止める最終防衛線。
     if (!isPrimaryRef.current) return;
+    // 手番を持たない端末は localStorage にも書かない(#91 §4.3)。
+    // 書いてしまうと、あとで手番を取ったときに古い手元が系譜へ紛れ込む
+    if (batonRef.current.enabled && batonRef.current.role === "guest") return;
     repository.save(tasks);
     notifyTasksChanged(tasks);
   }, [tasks]);
@@ -307,6 +331,10 @@ export default function App() {
 
   /** 読み取り専用の窓で編集操作を弾く。編集系ハンドラの先頭で呼ぶ(#57 §4.5)。 */
   const ensureWritable = useCallback(() => {
+    if (batonRef.current.enabled && batonRef.current.role === "guest") {
+      showToast("この端末は読み取り専用です。上部の〔読み込んで、この端末で更新する〕から切り替えてください");
+      return false;
+    }
     if (isPrimaryRef.current) return true;
     showToast("この窓は読み取り専用です。上部の〔この窓で編集〕で切り替えてください");
     return false;
@@ -431,6 +459,93 @@ export default function App() {
     void startWriterLock();
     return unsubscribe;
   }, [showToast]);
+
+  // 端末の手番(#91)。キャッシュした立場で即座に描画し、確認は裏で走らせる。
+  //   確認はネットワーク往復なので、待つ間に編集を止めるとタブを切り替えるたびに
+  //   固まる。食い違いは書き込み直前の再確認と救出ファイルで拾う(仕様書 §4.8)。
+  useEffect(() => {
+    const unsubscribe = subscribeBaton((s) => {
+      batonRef.current = s;
+      setBaton(s);
+    });
+    void refreshBaton();
+    const onShow = () => {
+      if (document.visibilityState === "visible") void refreshBaton();
+    };
+    document.addEventListener("visibilitychange", onShow);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onShow);
+    };
+  }, []);
+
+  // 降格して救出ファイルを書いたら、必ず知らせる。
+  // トーストだと見逃してファイルの存在に気づけないのでダイアログにする(仕様書 §4.6)
+  useEffect(() => {
+    if (!baton.rescuedFile) return;
+    window.alert(
+      "他の端末が更新側になりました。この端末は読み取り専用になります。\n\n" +
+        "送信できていなかった変更は、Google ドライブに救出ファイルとして保存しました。\n" +
+        `${baton.rescuedFile}\n\n` +
+        "必要なら 💾 メニューのインポートから読み戻せます。"
+    );
+    setBatonState({ rescuedFile: "" });
+  }, [baton.rescuedFile]);
+
+  /**
+   * 手番制のON/OFF。ONにするとき、フォルダに何も無ければ確認を挟む(仕様書 §4.0b)。
+   * Client ID や Google アカウントが1台目と食い違っていると、別のフォルダが
+   * できて互いに見えず、両端末が「自分が手番」と判定してしまう。
+   */
+  const handleToggleBaton = useCallback(
+    async (on: boolean) => {
+      setBatonEnabled(on);
+      setBatonState({ enabled: on });
+      if (!on) {
+        cacheRole("owner", "");
+        setBatonState({ role: "owner", ownerName: "" });
+        return;
+      }
+      if (!batonAvailable()) return;
+      try {
+        if (await batonGroupIsEmpty()) {
+          const ok = window.confirm(
+            "このグループには、まだ何の記録もありません。\n\n" +
+              "・初めて設定する端末なら、このまま進めてください\n" +
+              "・2台目のはずなら、Client ID・Google アカウント・グループ名が\n" +
+              "　1台目と同じか確認してください\n\n" +
+              `フォルダID: ${backupFolderId()}\n\n` +
+              "このまま新しく始めますか？"
+          );
+          if (!ok) {
+            setBatonEnabled(false);
+            setBatonState({ enabled: false });
+            return;
+          }
+        }
+        await claimBaton(loadGdriveConfig().deviceName);
+        await refreshBaton();
+      } catch (e) {
+        console.error("手番の設定に失敗しました", e);
+        showToast("手番の設定に失敗しました");
+      }
+    },
+    [showToast]
+  );
+
+  /** 手番を引き継ぐ。読み込み → 置換 → 手番ファイルの順(仕様書 §4.5) */
+  const doTakeover = useCallback(
+    async (plan: TakeoverPlan) => {
+      const parsed = JSON.parse(plan.text) as Record<string, unknown>[];
+      const next = parsed.map(migrateTask);
+      // undo は積まない。データだけ戻って手番が自分のまま残ると系譜が破れる(§4.5)
+      setTasks(next);
+      repository.save(next);
+      await claimBaton(loadGdriveConfig().deviceName);
+      showToast(`${plan.count}件を読み込みました。この端末で更新できます`);
+    },
+    [showToast]
+  );
 
   // 起動直後の一瞬(ロック取得が確定するまで)は読み取り専用に見えるため、
   // すぐにバナーを出すと単独窓で点滅する。少し待って本当に secondary のときだけ出す。
@@ -1911,6 +2026,10 @@ export default function App() {
         onOpenHelp={() => setHelpOpen(true)}
         readOnly={!isPrimary}
         compact={isMobile}
+        baton={baton}
+        folderId={backupFolderId()}
+        onToggleBaton={handleToggleBaton}
+        onDeviceNameChange={(name) => void syncBatonDeviceName(name)}
       />
 
       {/* 実行中タスクのバナー(#68): いま何をしているか / いつまでに終えるかを常時表示。
@@ -1922,9 +2041,23 @@ export default function App() {
         compact={isMobile}
       />
 
+      {/* 端末の手番なし(#91 §4.9)。窓ロック(#57)より優先して出す。
+          #57 の〔この窓で編集〕を並べると、押しても編集可にならず新しい閉じ込めになる */}
+      {baton.enabled && baton.role === "guest" && (
+        <BatonBanner
+          ownerName={baton.ownerName}
+          ownerBackupAt={baton.ownerBackupAt}
+          ownerCount={baton.ownerCount}
+          currentCount={tasks.length}
+          checking={baton.checking}
+          onPlan={() => planTakeover(tasks.length)}
+          onTakeover={doTakeover}
+        />
+      )}
+
       {/* 読み取り専用バナー(#57): 別窓で編集中のとき。ここで編集すると他窓の変更を
           消す事故になるため書き込みを止めている旨を示し、明示操作で書き手を引き継げる */}
-      {!isPrimary && roleSettled && (
+      {!isPrimary && roleSettled && !(baton.enabled && baton.role === "guest") && (
         <div className="flex flex-wrap items-center justify-center gap-3 border-b border-amber-200 bg-amber-100 px-4 py-1.5 text-sm text-amber-900">
           <span>
             👁 この窓は読み取り専用です(別のウィンドウで編集中)。巻き戻り事故を防ぐため書き込みを止めています。
