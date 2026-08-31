@@ -9,7 +9,9 @@
 //     (appdata の隠し領域は「最後の砦が目視できない」ので採らない)
 //   ・アクセストークンはメモリのみ。localStorage に持つのは
 //     Client ID・端末名・ファイルID(機微でない値)だけ
-//   ・複数端末が同じファイルを潰し合わないよう、ファイル名に端末名を含める
+//   ・ファイル名には「グループ名」を含める(#91)。グループ名は端末の識別子ではなく
+//     「どのデータを見るか」を決める値で、同じ値の端末どうしが1つのデータを共有する。
+//     誰が書いてよいかは手番(baton.ts)が決めるので、共有しても奪い合いにはならない。
 // ==============================================================
 import { GoogleTokenSource } from "../googleAuth";
 import { decodeBackupBytes, gzipText, verifyGzipped } from "../gzip";
@@ -21,6 +23,8 @@ import {
   dailyFileDate,
   dailyFileName,
   mirrorFileName,
+  type OwnerRecord,
+  rescueFileName,
 } from "./types";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
@@ -33,7 +37,10 @@ const ROOT_FOLDER = "worklist3";
 const ROTATION_FOLDER = "backups";
 
 const LS_CLIENT_ID = "worklist3.gdrive.clientId";
-const LS_DEVICE = "worklist3.gdrive.device";
+/** #91 以前の名前(「端末名」)。値はそのままグループ名として引き継ぐ */
+const LS_LEGACY_DEVICE = "worklist3.gdrive.device";
+const LS_GROUP = "worklist3.gdrive.group";
+const LS_DEVICE_NAME = "worklist3.gdrive.deviceName";
 const LS_COMPRESS = "worklist3.gdrive.compress";
 
 /**
@@ -46,15 +53,22 @@ function ls(): Storage | null {
 
 export interface GdriveConfig {
   clientId: string;
-  /** 端末名。ファイル名に入れて、複数端末が同じファイルを潰し合わないようにする */
-  device: string;
+  /**
+   * グループ名(#91)。ファイル名に入る。
+   * 同じ値の端末どうしが同じミラー・同じ日次コピーを共有する。
+   */
+  group: string;
+  /** 端末名。手番のバナーに出す表示専用。空でもよい */
+  deviceName: string;
 }
 
 export function loadGdriveConfig(): GdriveConfig {
   const store = ls();
   return {
     clientId: store?.getItem(LS_CLIENT_ID) ?? "",
-    device: store?.getItem(LS_DEVICE) ?? "",
+    // #91 以前は「端末名」として同じ値を保存していた。ファイル名を変えずに引き継ぐ
+    group: store?.getItem(LS_GROUP) ?? store?.getItem(LS_LEGACY_DEVICE) ?? "",
+    deviceName: store?.getItem(LS_DEVICE_NAME) ?? "",
   };
 }
 
@@ -62,7 +76,8 @@ export function saveGdriveConfig(c: Partial<GdriveConfig>): void {
   const store = ls();
   if (!store) return;
   if (c.clientId !== undefined) store.setItem(LS_CLIENT_ID, c.clientId.trim());
-  if (c.device !== undefined) store.setItem(LS_DEVICE, c.device.trim());
+  if (c.group !== undefined) store.setItem(LS_GROUP, c.group.trim());
+  if (c.deviceName !== undefined) store.setItem(LS_DEVICE_NAME, c.deviceName.trim());
 }
 
 /** 認証が切れた・設定が足りないなど、再接続で直る種類の失敗 */
@@ -102,7 +117,12 @@ export class GdriveBackupTarget implements BackupTarget {
   private mirrorId: string | null = null;
 
   get displayName(): string {
-    return loadGdriveConfig().device;
+    return loadGdriveConfig().group;
+  }
+
+  /** 接続中のフォルダID。2台が同じデータを見ているかの確認に使う(#91 §4.0a) */
+  get folderIdForDisplay(): string {
+    return this.folderId ?? "";
   }
 
   setCompress(on: boolean): void {
@@ -110,9 +130,9 @@ export class GdriveBackupTarget implements BackupTarget {
     ls()?.setItem(LS_COMPRESS, on ? "1" : "0");
   }
 
-  /** ファイル名の接頭辞。端末名を含めることで端末ごとに別ファイルになる */
+  /** ファイル名の接頭辞。グループ名を含めることでデータ集合ごとに別ファイルになる */
   private get prefix(): string {
-    return `${ROOT_FOLDER}-${loadGdriveConfig().device}`;
+    return `${ROOT_FOLDER}-${loadGdriveConfig().group}`;
   }
 
   // ---- 認証 ----
@@ -224,12 +244,12 @@ export class GdriveBackupTarget implements BackupTarget {
   // ---- 接続 ----
 
   private async attach(interactive: boolean): Promise<ConnectResult> {
-    const { clientId, device } = loadGdriveConfig();
-    if (!clientId || !device) {
+    const { clientId, group } = loadGdriveConfig();
+    if (!clientId || !group) {
       return {
         ok: false,
-        displayName: device,
-        problem: "Client ID と端末名を設定してください",
+        displayName: group,
+        problem: "Client ID とグループ名を設定してください",
         needsReconnect: true,
       };
     }
@@ -237,7 +257,7 @@ export class GdriveBackupTarget implements BackupTarget {
       await this.token(interactive);
       await this.folders();
       this.connected = true;
-      return { ok: true, displayName: device };
+      return { ok: true, displayName: group };
     } catch (e) {
       this.connected = false;
       // 汎用文言で潰さず、失敗した理由をそのまま出す。
@@ -245,7 +265,7 @@ export class GdriveBackupTarget implements BackupTarget {
       const message = e instanceof Error && e.message ? e.message : String(e);
       return {
         ok: false,
-        displayName: device,
+        displayName: group,
         problem: message,
         needsReconnect: true,
       };
@@ -259,8 +279,8 @@ export class GdriveBackupTarget implements BackupTarget {
 
   restore(): Promise<ConnectResult> {
     // 設定が無いなら何もしない(起動時に認証画面を出さない)
-    const { clientId, device } = loadGdriveConfig();
-    if (!clientId || !device) return Promise.resolve({ ok: false, displayName: "" });
+    const { clientId, group } = loadGdriveConfig();
+    if (!clientId || !group) return Promise.resolve({ ok: false, displayName: "" });
     return this.attach(false);
   }
 
@@ -410,6 +430,118 @@ export class GdriveBackupTarget implements BackupTarget {
     const { root } = await this.folders();
     const id = await this.findFile(mirrorFileName(this.prefix, !this.compress), root);
     if (id) await this.trash(id);
+  }
+
+  // ---- 手番(#91) ----
+  //   グループを共有する端末のうち、いま更新してよい1台を記録する小さなファイル。
+  //   ミラー本体(数百KB)を落とさずに読めるよう独立させてある。
+
+  /** 手番ファイルの名前。グループごとに1つ */
+  private get ownerFileName(): string {
+    return `${this.prefix}-owner.json`;
+  }
+
+  /** 手番ファイルを読む。無ければ null(＝まだ誰も手番を取っていない) */
+  async readOwner(): Promise<OwnerRecord | null> {
+    if (!this.connected) return null;
+    const { root } = await this.folders();
+    const id = await this.findFile(this.ownerFileName, root);
+    if (!id) return null;
+    const res = await this.call(`${API}/${id}?alt=media`);
+    if (!res.ok) return null;
+    try {
+      const rec = (await res.json()) as OwnerRecord;
+      return typeof rec?.deviceId === "string" && rec.deviceId ? rec : null;
+    } catch {
+      return null; // 壊れていたら「未設定」として扱う(読めない値で締め出さない)
+    }
+  }
+
+  /** 手番ファイルを書く(奪取・端末名の変更) */
+  async writeOwner(rec: OwnerRecord): Promise<void> {
+    const { root } = await this.folders();
+    await this.putJson(this.ownerFileName, root, JSON.stringify(rec));
+  }
+
+  /** 手番を手放す。ファイルごと消して「未設定」に戻す */
+  async clearOwner(): Promise<void> {
+    const { root } = await this.folders();
+    const id = await this.findFile(this.ownerFileName, root);
+    if (id) await this.trash(id);
+  }
+
+  /** ミラーの中身と最終更新時刻。奪取の判断材料と読み込み元を1回で取る */
+  async readMirror(): Promise<{ text: string; modifiedTime: string } | null> {
+    if (!this.connected) return null;
+    const { root } = await this.folders();
+    for (const compress of [this.compress, !this.compress]) {
+      const name = mirrorFileName(this.prefix, compress);
+      const meta = await this.json<{ files?: { id: string; modifiedTime: string }[] }>(
+        `${API}?q=${encodeURIComponent(
+          `name='${name.replace(/'/g, "\\'")}' and '${root}' in parents and trashed=false`
+        )}&fields=files(id,modifiedTime)&pageSize=1`
+      );
+      const f = meta.files?.[0];
+      if (!f) continue;
+      const res = await this.call(`${API}/${f.id}?alt=media`);
+      if (!res.ok) continue;
+      try {
+        const text = await decodeBackupBytes(new Uint8Array(await res.arrayBuffer()));
+        if (compress === this.compress) this.mirrorId = f.id;
+        return { text, modifiedTime: f.modifiedTime };
+      } catch {
+        /* 次の形式を試す */
+      }
+    }
+    return null;
+  }
+
+  /** このグループのフォルダに、まだ何の記録も無いか(#91 §4.0b) */
+  async isEmptyGroup(): Promise<boolean> {
+    if (!this.connected) return false;
+    const { root } = await this.folders();
+    if (await this.findFile(this.ownerFileName, root)) return false;
+    for (const compress of [true, false]) {
+      if (await this.findFile(mirrorFileName(this.prefix, compress), root)) return false;
+    }
+    return true;
+  }
+
+  /**
+   * 降格した端末の未送信データを救い出す(#91 §4.6)。
+   * ミラーへ書くと他端末の系譜を壊すので、必ず別名にする。
+   * 名前は日次コピーの規約に一致しないため、ローテーション掃除の対象にならない。
+   */
+  async writeRescue(body: BackupBody, deviceId: string, stamp: string): Promise<string> {
+    const { root } = await this.folders();
+    const name = rescueFileName(this.prefix, deviceId, stamp, this.compress);
+    const { blob } = await this.encode(body);
+    await this.putBlob(name, root, blob);
+    return name;
+  }
+
+  /** 名前で探して中身を差し替える。無ければ作る(小さなJSON向け) */
+  private async putJson(name: string, parent: string, text: string): Promise<void> {
+    await this.putBlob(name, parent, new Blob([text], { type: "application/json" }));
+  }
+
+  private async putBlob(name: string, parent: string, blob: Blob): Promise<void> {
+    const id = await this.findFile(name, parent);
+    if (id) {
+      const res = await this.call(`${UPLOAD}/${id}?uploadType=media`, {
+        method: "PATCH",
+        headers: { "Content-Type": blob.type || "application/octet-stream" },
+        body: blob,
+      });
+      if (res.status !== 404) return; // 404 は手動削除。作り直しへ落ちる
+    }
+    const form = new FormData();
+    form.append(
+      "metadata",
+      new Blob([JSON.stringify({ name, parents: [parent] })], { type: "application/json" })
+    );
+    form.append("file", blob, name);
+    await this.call(`${UPLOAD}?uploadType=multipart&fields=id`, { method: "POST", body: form });
   }
 
   /** 復元用: 控えの中身を JSON 文字列で取り出す(圧縮されていれば展開する) */

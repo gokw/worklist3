@@ -16,6 +16,16 @@ import { addToDate, nowHHMM, todayStr } from "./date";
 import { gzipSupported } from "./gzip";
 import type { BackupBody, BackupTarget, BackupTargetId, ConnectResult } from "./backupTargets/types";
 import { FsaBackupTarget } from "./backupTargets/fsa";
+import {
+  batonAllowsWrite,
+  deviceId,
+  getBatonState,
+  rescueStamp,
+  resolveRole,
+  setBatonState,
+  cacheRole,
+  staleWarning,
+} from "./baton";
 import { GdriveBackupTarget } from "./backupTargets/gdrive";
 
 /** ローテーションの世代保持数(日)。これより古い日付のファイルは自動削除 */
@@ -237,9 +247,50 @@ function isOffline(e: unknown): boolean {
   return e instanceof TypeError; // fetch のネットワークエラー
 }
 
+/**
+ * 書き込み直前の手番確認(#91 §4.6)。
+ * 手番を失っていたら、手元のデータを救出ファイルへ書き出してから降格し、false を返す。
+ *
+ * 降格に気づけるのは手番ファイルを読めたとき＝オンラインのときなので、
+ * 救出ファイルは必ず書ける。読めなかった場合はキャッシュを正として続行する
+ * (ここで悲観的に止めると、圏外のスマートフォンで打刻できなくなる)。
+ */
+async function ensureStillOwner(tasks: Task[]): Promise<boolean> {
+  const baton = getBatonState();
+  if (!baton.enabled || current.id !== "gdrive") return true;
+  const drive = current as GdriveBackupTarget;
+
+  let owner;
+  try {
+    owner = await drive.readOwner();
+  } catch {
+    return true; // 読めない = 通信不良。キャッシュを正として書き続ける
+  }
+  const role = resolveRole(owner, deviceId());
+  if (role !== "guest") return true;
+
+  // 奪われていた。手元の未送信ぶんを救い出してから読み取り専用へ落とす
+  let rescued = "";
+  try {
+    rescued = await drive.writeRescue(bodyOf(tasks), deviceId(), rescueStamp(new Date()));
+  } catch (e) {
+    console.error("救出ファイルの書き出しに失敗しました", e);
+  }
+  const ownerName = owner?.deviceName ?? "";
+  cacheRole("guest", ownerName);
+  setBatonState({ role: "guest", ownerName, rescuedFile: rescued });
+  pending = null;
+  return false;
+}
+
 /** ミラー+日次コピーを書く。force=true でサニティガードを無視(ユーザーの明示操作) */
 async function writeBackup(tasks: Task[], force: boolean): Promise<void> {
   if (!state.connected) return;
+
+  // 手番制ON のときは、書く直前に「まだ自分が更新側か」を確かめる(#91 §4.6)。
+  // 他端末に奪われていたら、ミラーではなく救出ファイルへ逃がして降格する。
+  // ミラーへ書くと他端末の系譜を壊すので、ここは必ず書き込みより前に通す。
+  if (!(await ensureStillOwner(tasks))) return;
 
   const reason = force ? "" : guardReason(tasks.length, prevCount());
   if (reason) {
@@ -296,6 +347,7 @@ async function flush(): Promise<void> {
 /** タスクが変わったことを知らせる(App の保存useEffectから呼ぶ)。非同期・非ブロッキング */
 export function notifyTasksChanged(tasks: Task[]): void {
   if (!state.connected) return;
+  if (!batonAllowsWrite()) return; // 手番の無い端末は控えも書かない(#91 §4.3)
   pending = tasks;
   window.clearTimeout(flushTimer);
   flushTimer = window.setTimeout(() => void flush(), current.debounceMs);
@@ -463,4 +515,136 @@ if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
     if (state.connected && pending) void flush();
   });
+}
+
+// -------------------------------------------------------------
+// 手番(#91)
+//   Drive 保存先でのみ提供する。FSA(ローカル同期フォルダ)は同期遅延が
+//   分単位あり、競合時に同期クライアントが別名コピーを作るため、
+//   手番ファイルの一意性が保証できない(仕様書 §8)。
+// -------------------------------------------------------------
+
+/** 手番制を使える状況か(Drive に接続済み、かつ設定がON) */
+export function batonAvailable(): boolean {
+  return state.connected && current.id === "gdrive";
+}
+
+function drive(): GdriveBackupTarget {
+  return gdriveTarget;
+}
+
+/**
+ * 手番ファイルを読んで立場を更新する。起動時・タブ復帰時・設定変更時に呼ぶ。
+ * **読めなかったときはキャッシュを保つ。** ここで読み取り専用に落とすと、
+ * 圏外のスマートフォンで打刻できなくなる(仕様書 §4.8)。
+ */
+export async function refreshBaton(): Promise<void> {
+  if (!getBatonState().enabled || !batonAvailable()) return;
+  setBatonState({ checking: true });
+  try {
+    const owner = await drive().readOwner();
+    const role = resolveRole(owner, deviceId());
+    const ownerName = owner?.deviceName ?? "";
+    cacheRole(role, ownerName);
+    if (role === "guest") {
+      // バナーに出す判断材料。取れなくても奪取は妨げない
+      const mirror = await drive().readMirror().catch(() => null);
+      let count: number | null = null;
+      if (mirror) {
+        try {
+          const parsed = JSON.parse(mirror.text);
+          if (Array.isArray(parsed)) count = parsed.length;
+        } catch {
+          /* 壊れていれば件数は不明のまま */
+        }
+      }
+      setBatonState({
+        role,
+        ownerName,
+        ownerBackupAt: mirror?.modifiedTime ?? "",
+        ownerCount: count,
+      });
+    } else {
+      setBatonState({ role, ownerName, ownerBackupAt: "", ownerCount: null });
+    }
+  } catch (e) {
+    console.error("手番の確認に失敗しました", e); // キャッシュを保つ
+  } finally {
+    setBatonState({ checking: false });
+  }
+}
+
+/** このグループのフォルダにまだ何も無いか(#91 §4.0b の確認に使う) */
+export async function batonGroupIsEmpty(): Promise<boolean> {
+  if (!batonAvailable()) return false;
+  return await drive().isEmptyGroup();
+}
+
+/** 接続中のフォルダID。2台が同じデータを見ているかの確認用(#91 §4.0a) */
+export function backupFolderId(): string {
+  return current.id === "gdrive" ? gdriveTarget.folderIdForDisplay : "";
+}
+
+/** この端末を手番にする(手番ファイルを書く) */
+export async function claimBaton(deviceName: string): Promise<void> {
+  await drive().writeOwner({
+    deviceId: deviceId(),
+    deviceName,
+    since: new Date().toISOString(),
+  });
+  cacheRole("owner", deviceName);
+  setBatonState({ role: "owner", ownerName: deviceName, ownerBackupAt: "", ownerCount: null });
+}
+
+/** 手番を手放す。他端末は奪取できるので必須ではないが、明示的に譲れるようにする */
+export async function releaseBaton(): Promise<void> {
+  await drive().clearOwner();
+  cacheRole("unset", "");
+  setBatonState({ role: "unset", ownerName: "" });
+}
+
+/** 手番を持つ端末が端末名を変えたら、手番ファイルの表示名も直す(#91 §4.2) */
+export async function syncBatonDeviceName(deviceName: string): Promise<void> {
+  if (!getBatonState().enabled || !batonAvailable()) return;
+  if (getBatonState().role !== "owner") return;
+  const owner = await drive().readOwner();
+  if (!owner || owner.deviceId !== deviceId()) return;
+  await drive().writeOwner({ ...owner, deviceName });
+  cacheRole("owner", deviceName);
+  setBatonState({ ownerName: deviceName });
+}
+
+export interface TakeoverPlan {
+  /** 読み込む中身(タスクの配列のJSON) */
+  text: string;
+  /** 読み込むと何件になるか */
+  count: number;
+  /** 手元の件数 */
+  currentCount: number;
+  /** サニティガードの理由。空なら問題なし */
+  guard: string;
+  /** 最終バックアップが古いときの警告。空なら問題なし */
+  stale: string;
+  modifiedTime: string;
+}
+
+/**
+ * 奪取の下調べ。**置換の前に**サニティガードを通すのがここ(#91 §4.7)。
+ * guardReason は書き込み側にしか掛かっていないため、読み込み側にも掛けないと
+ * 「壊れた控えで手元を先に潰す」が起きる。
+ */
+export async function planTakeover(currentCount: number): Promise<TakeoverPlan> {
+  const mirror = await drive().readMirror();
+  if (!mirror) throw new Error("読み込めるデータがありません");
+  const parsed = JSON.parse(mirror.text);
+  if (!Array.isArray(parsed)) throw new Error("控えの形式が不正です");
+  const s = getBatonState();
+  return {
+    text: mirror.text,
+    count: parsed.length,
+    currentCount,
+    guard: guardReason(parsed.length, currentCount),
+    stale: staleWarning(mirror.modifiedTime, Date.now(), s.ownerName),
+    modifiedTime: mirror.modifiedTime,
+  };
 }
