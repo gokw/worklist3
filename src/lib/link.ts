@@ -78,10 +78,9 @@ export function parseLink(raw: string): ParsedLink {
 
 // --------------------------------------------------------------
 // モバイル一覧のリンク表示(Issue #88)
-//   PC(表)はタスク名の右に 🔗 を並べるだけで足りるが、モバイルは
-//   「それが何のリンクか」が分からないと押す気になれない。とくに
-//   「ここにいる」記録(#86)は Google マップのリンクが本体なので、
-//   地図だと一目で分かることを要件にする。
+//   タスク名の右に絵文字を並べる(行は増やさない)。すべて 🔗 にすると
+//   「ここにいる」記録(#86)の地図が他のリンクに埋もれるため、
+//   Google マップだけは 🗺️ にして見分けが付くようにする。
 // --------------------------------------------------------------
 
 /** google.com / google.co.jp / google.de … の類か(maps.google.* は別で見る) */
@@ -111,35 +110,11 @@ export function isMapsUrl(raw: string): boolean {
   return false;
 }
 
-/** ホスト名だけの短いラベル(www. は落とす)。URLとして読めなければ元の文字列 */
-function webLabel(value: string): string {
-  try {
-    return new URL(value).hostname.replace(/^www\./i, "") || value;
-  } catch {
-    return value;
-  }
-}
-
-/** ローカルパスの末尾要素(ファイル名・フォルダ名)。取れなければパス全体 */
-function localLabel(nativePath: string): string {
-  const last = nativePath.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
-  return last && last !== "" ? last : nativePath;
-}
-
-export interface LinkChip {
-  /** 先頭に置く絵文字 */
-  icon: string;
-  /** チップに出す短いラベル(溢れは表示側で省略) */
-  label: string;
-  /** 見た目(色)の出し分けに使う種類 */
-  tone: "maps" | "web" | "local";
-}
-
-/** リンク1件を、モバイルのチップに出す「絵文字＋短いラベル」へ落とす */
-export function linkChip(link: ParsedLink): LinkChip {
-  if (link.kind === "local") {
-    return { icon: link.isFile ? "📄" : "📁", label: localLabel(link.display), tone: "local" };
-  }
-  if (isMapsUrl(link.value)) return { icon: "🗺️", label: "地図", tone: "maps" };
-  return { icon: "🔗", label: webLabel(link.value), tone: "web" };
+/**
+ * モバイル一覧で、タスク名の右に出す絵文字を決める。
+ *   Google マップ … 🗺️ / その他の Web … 🔗 / ローカル … 📄(ファイル) 📁(フォルダ)
+ */
+export function linkIcon(link: ParsedLink): string {
+  if (link.kind === "local") return link.isFile ? "\u{1F4C4}" : "\u{1F4C1}";
+  return isMapsUrl(link.value) ? "\u{1F5FA}\u{FE0F}" : "\u{1F517}";
 }
