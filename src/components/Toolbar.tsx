@@ -447,7 +447,11 @@ export default function Toolbar(p: Props) {
               外側クリック・Esc で閉じる(useDismiss)。fixed の背景は使えない事情はそちらのコメント参照 */}
           {dataMenuOpen && (
             <>
-              <div className="absolute right-0 top-10 z-50 w-72 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
+              {/* 画面より高くなったら中でスクロールさせる。max-height と overflow-y が
+                  無いと、はみ出した下側(接続・今すぐバックアップ・接続を解除)へ
+                  永久に到達できない。項目が増えると必ず起きるので、高さは
+                  ビューポートに縛っておく */}
+              <div className="absolute right-0 top-10 z-50 max-h-[calc(100dvh-4rem)] w-72 overflow-y-auto overflow-x-hidden overscroll-contain rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
                 <button
                   className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
                   onClick={() => {
@@ -880,7 +884,7 @@ export default function Toolbar(p: Props) {
             </button>
             {viewMenuOpen && (
               <>
-                <div className="absolute left-0 top-9 z-50 w-32 overflow-hidden rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
+                <div className="absolute left-0 top-9 z-50 max-h-[calc(100dvh-4rem)] w-32 overflow-y-auto overflow-x-hidden overscroll-contain rounded-lg border border-gray-200 bg-white py-1 shadow-xl">
                   {DROPDOWN_VIEWS.map((v) => (
                     <button
                       key={v}
