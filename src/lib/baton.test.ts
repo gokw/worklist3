@@ -5,6 +5,7 @@ import { describe, it, expect } from "vitest";
 import {
   absoluteTime,
   canWrite,
+  enableAction,
   ownerLabel,
   relativeTime,
   rescueStamp,
@@ -115,5 +116,19 @@ describe("rescueFileName", () => {
     const a = rescueFileName("p", "aaaaaa11", "20260831-1430", true);
     const b = rescueFileName("p", "bbbbbb22", "20260831-1430", true);
     expect(a).not.toBe(b);
+  });
+});
+
+describe("enableAction", () => {
+  it("誰も手番を持っていなければ、この端末が取る", () => {
+    expect(enableAction("unset")).toBe("claim");
+  });
+  it("すでに自分が手番なら何もしない", () => {
+    expect(enableAction("owner")).toBe("noop");
+  });
+  it("他の端末が手番を持っていたら奪わず、バナーへ誘導する", () => {
+    // ここで claim すると、相手のデータを読まずに手番だけ奪うことになる。
+    // 仕様書 §4.5 が禁じた「②③を通らずに④だけ起きる経路」そのもの
+    expect(enableAction("guest")).toBe("banner");
   });
 });

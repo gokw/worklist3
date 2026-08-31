@@ -94,6 +94,20 @@ export function staleWarning(modifiedTime: string, now: number, ownerName: strin
   );
 }
 
+/**
+ * 「複数台で使う」をONにしたとき、何をすべきか。
+ *
+ *   guest のときに claim してはいけない。それは「相手のデータを読まずに
+ *   手番だけ奪う」ことで、仕様書 §4.5 が明示的に禁じた経路
+ *   (①読み込み ②ガード ③置換 を通さずに ④だけ起きる)にあたる。
+ *   引き継ぎは必ずバナーの奪取を通す。
+ */
+export function enableAction(role: BatonRole): "claim" | "banner" | "noop" {
+  if (role === "guest") return "banner";
+  if (role === "owner") return "noop";
+  return "claim";
+}
+
 /** 救出ファイル名に入れる時刻(YYYYMMDD-HHmm) */
 export function rescueStamp(now: Date): string {
   const p = (n: number) => String(n).padStart(2, "0");

@@ -594,7 +594,10 @@ export default function Toolbar(p: Props) {
                   ))}
                 </div>
 
-                {p.backup.targetId === "gdrive" && !p.backup.connected && (
+                {/* 接続の有無で隠さない(#91)。接続中に Client ID・グループ名・端末名・
+                    フォルダID を確認できないと、2台目の設定が1台目と揃っているか
+                    確かめられない。#84 の「必要な設定に辿り着けない」の再来を避ける */}
+                {p.backup.targetId === "gdrive" && (
                   <div className="px-3 pb-2">
                     <label className="mb-0.5 block text-[11px] text-gray-500">Client ID</label>
                     <input
@@ -651,18 +654,28 @@ export default function Toolbar(p: Props) {
                       </p>
                     )}
 
-                    {/* 手番制(#91)。既定OFF。1台運用に余計な仕組みを背負わせない */}
-                    {p.backup.connected && (
-                      <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2">
-                        <label className="flex items-center gap-1.5 text-[11px] text-gray-700">
-                          <input
-                            type="checkbox"
-                            checked={p.baton.enabled}
-                            onChange={(e) => p.onToggleBaton(e.target.checked)}
-                          />
-                          複数台で使う(更新する端末を1台に決める)
-                        </label>
-                        {p.baton.enabled && (
+                    {/* 手番制(#91)。既定OFF。1台運用に余計な仕組みを背負わせない。
+                        未接続でも項目自体は出す — 隠すと機能の存在に気づけない */}
+                    <div className="mt-2 rounded border border-gray-200 bg-gray-50 p-2">
+                      <label
+                        className={`flex items-center gap-1.5 text-[11px] ${
+                          p.backup.connected ? "text-gray-700" : "text-gray-400"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={!p.backup.connected}
+                          checked={p.baton.enabled}
+                          onChange={(e) => p.onToggleBaton(e.target.checked)}
+                        />
+                        複数台で使う(更新する端末を1台に決める)
+                      </label>
+                      {!p.backup.connected ? (
+                        <p className="mt-1 text-[11px] text-gray-500">
+                          Google ドライブへ接続すると設定できます
+                        </p>
+                      ) : (
+                        p.baton.enabled && (
                           <p className="mt-1 text-[11px] text-gray-500">
                             いまの更新側:{" "}
                             {p.baton.role === "owner"
@@ -671,9 +684,9 @@ export default function Toolbar(p: Props) {
                                 ? ownerLabel(p.baton.ownerName)
                                 : "未設定"}
                           </p>
-                        )}
-                      </div>
-                    )}
+                        )
+                      )}
+                    </div>
                   </div>
                 )}
 
