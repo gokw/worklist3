@@ -60,6 +60,8 @@ import {
 } from "./lib/backup";
 import {
   cacheRole,
+  enableAction,
+  ownerLabel,
   setBatonEnabled,
   getBatonState,
   subscribeBaton,
@@ -508,6 +510,23 @@ export default function App() {
       }
       if (!batonAvailable()) return;
       try {
+        // まず現状を読む。ここを飛ばして claimBaton へ行くと、他端末が手番を
+        // 持っていてもそのデータを読まずに奪うことになる。仕様書 §4.5 が禁じた
+        // 「①読み込み ②ガード ③置換 を通さずに ④手番だけ書く」経路そのもの。
+        await refreshBaton();
+        const action = enableAction(getBatonState().role);
+
+        if (action === "banner") {
+          // 他の端末が更新側。ここでは奪わない。読み取り専用にして、
+          // バナーの〔読み込んで、この端末で更新する〕から正規の手順を踏ませる
+          showToast(
+            `${ownerLabel(getBatonState().ownerName)} が更新側です。上部のバナーから引き継げます`
+          );
+          return;
+        }
+        if (action === "noop") return; // すでに自分が手番。何もしない
+
+        // 未設定。誰も手番を持っていないので、この端末が取ってよい
         if (await batonGroupIsEmpty()) {
           const ok = window.confirm(
             "このグループには、まだ何の記録もありません。\n\n" +
@@ -524,7 +543,6 @@ export default function App() {
           }
         }
         await claimBaton(loadGdriveConfig().deviceName);
-        await refreshBaton();
       } catch (e) {
         console.error("手番の設定に失敗しました", e);
         showToast("手番の設定に失敗しました");
