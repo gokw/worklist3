@@ -8,11 +8,14 @@
 //     (カード形式が390pxで「洗濯物 / をたたむ」と縦に潰れた反省)
 //   ・行に置く操作は打刻だけ。中断・延期・コピー・削除は行タップ→詳細編集から
 //   ・並び順・絞り込みは表と共通(visibleTasks をそのまま受け取る)
+//   ・リンクは行の下にチップで並べる(#88)。PCのように名前の右へ 🔗 を
+//     置くと、ただでさえ狭いタスク名を削るうえ指で押し分けられない。
 // ==============================================================
 import type { Task } from "../types";
 import { DERIVED_STATUS_LABELS } from "../types";
 import { formatDateJa, formatMin } from "../lib/date";
 import { actMin, derivedStatus } from "../lib/logic";
+import { linkChip, parseLink } from "../lib/link";
 import { statusBadgeClass, taskBgClass } from "./rowStyle";
 
 interface Props {
@@ -22,6 +25,8 @@ interface Props {
   onEdit: (task: Task) => void;
   /** メモ本文の表示(タスク名の右の📝) */
   onShowMemo: (task: Task) => void;
+  /** ローカルパスのコピー(ブラウザから開けないため。#45) */
+  onCopyPath: (path: string) => void;
   /** 読み取り専用(別窓が書き手のとき)。打刻を無効化する。#57 */
   readOnly?: boolean;
 }
@@ -74,6 +79,7 @@ export default function TaskListMobile({
   onEnd,
   onEdit,
   onShowMemo,
+  onCopyPath,
   readOnly = false,
 }: Props) {
   if (tasks.length === 0) {
@@ -102,6 +108,7 @@ export default function TaskListMobile({
               const st = derivedStatus(t);
               const summary = timeSummary(t);
               const hasMemo = t.memos.some((m) => m.trim() !== "");
+              const links = t.links.filter((l) => l.trim() !== "");
               return (
                 <li key={t.id} className={`border-b border-gray-200 ${taskBgClass(t)}`}>
                   {/* 行のどこを押しても詳細編集。打刻ボタンだけは伝播を止める */}
@@ -163,6 +170,53 @@ export default function TaskListMobile({
                       </button>
                     )}
                   </div>
+
+                  {/* リンク(#88)。行タップ(詳細編集)と押し分けられるよう、
+                      タップ領域の外に独立した1行として置く */}
+                  {links.length > 0 && (
+                    <div className="flex flex-wrap gap-2 px-2 pb-2">
+                      {links.map((url, i) => {
+                        const link = parseLink(url);
+                        const chip = linkChip(link);
+                        const base =
+                          "inline-flex h-10 max-w-full items-center gap-1 rounded-full border px-3 text-xs";
+                        const tone =
+                          chip.tone === "maps"
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
+                            : chip.tone === "web"
+                              ? "border-blue-200 bg-blue-50 text-blue-700"
+                              : "border-gray-300 bg-gray-50 text-gray-600";
+                        // ローカルパスはブラウザから開けない。押したらパスをコピーする(#45)
+                        if (link.kind === "local") {
+                          return (
+                            <button
+                              key={i}
+                              type="button"
+                              className={`${base} ${tone}`}
+                              title={`${link.display}\n(タップでパスをコピー)`}
+                              onClick={() => onCopyPath(link.value)}
+                            >
+                              <span aria-hidden>{chip.icon}</span>
+                              <span className="truncate">{chip.label}</span>
+                            </button>
+                          );
+                        }
+                        return (
+                          <a
+                            key={i}
+                            href={link.value}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`${base} ${tone}`}
+                            title={link.display}
+                          >
+                            <span aria-hidden>{chip.icon}</span>
+                            <span className="truncate">{chip.label}</span>
+                          </a>
+                        );
+                      })}
+                    </div>
+                  )}
                 </li>
               );
             })}

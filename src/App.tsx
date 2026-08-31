@@ -1968,6 +1968,7 @@ export default function App() {
             onEnd={actionHandlers.onEnd}
             onEdit={actionHandlers.onEdit}
             onShowMemo={setMemoTarget}
+            onCopyPath={handleCopyPath}
             readOnly={!isPrimary}
           />
         ) : (
