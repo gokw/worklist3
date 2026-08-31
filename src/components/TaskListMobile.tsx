@@ -8,14 +8,14 @@
 //     (カード形式が390pxで「洗濯物 / をたたむ」と縦に潰れた反省)
 //   ・行に置く操作は打刻だけ。中断・延期・コピー・削除は行タップ→詳細編集から
 //   ・並び順・絞り込みは表と共通(visibleTasks をそのまま受け取る)
-//   ・リンクは行の下にチップで並べる(#88)。PCのように名前の右へ 🔗 を
-//     置くと、ただでさえ狭いタスク名を削るうえ指で押し分けられない。
+//   ・リンクとメモはタスク名の右に絵文字で並べる(#88)。行を増やさない —
+//     1行1タスクが崩れると一覧を見渡せなくなる。溢れるのはタスク名の方
 // ==============================================================
 import type { Task } from "../types";
 import { DERIVED_STATUS_LABELS } from "../types";
 import { formatDateJa, formatMin } from "../lib/date";
 import { actMin, derivedStatus } from "../lib/logic";
-import { linkChip, parseLink } from "../lib/link";
+import { linkIcon, parseLink } from "../lib/link";
 import { statusBadgeClass, taskBgClass } from "./rowStyle";
 
 interface Props {
@@ -133,9 +133,45 @@ export default function TaskListMobile({
                         </span>
                         {/* 折り返さない。溢れは省略し、全文は詳細編集で見る */}
                         <span className="truncate text-[15px] font-medium">{t.title}</span>
+                        {/* リンク(#88)。地図か・Webか・ローカルかが絵文字で分かる。
+                            行タップ(詳細編集)に伝播させない */}
+                        {links.map((url, i) => {
+                          const link = parseLink(url);
+                          const cls = "shrink-0 px-1 py-2 text-base leading-none";
+                          // ローカルパスはブラウザから開けない。押したらパスをコピー(#45)
+                          if (link.kind === "local") {
+                            return (
+                              <button
+                                key={i}
+                                type="button"
+                                className={cls}
+                                title={`${link.display}\n(タップでパスをコピー)`}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onCopyPath(link.value);
+                                }}
+                              >
+                                {linkIcon(link)}
+                              </button>
+                            );
+                          }
+                          return (
+                            <a
+                              key={i}
+                              href={link.value}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={cls}
+                              title={link.display}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {linkIcon(link)}
+                            </a>
+                          );
+                        })}
                         {hasMemo && (
                           <button
-                            className="shrink-0 text-sm"
+                            className="shrink-0 px-1 py-2 text-base leading-none"
                             title="メモを表示"
                             onClick={(e) => {
                               e.stopPropagation();
@@ -171,52 +207,6 @@ export default function TaskListMobile({
                     )}
                   </div>
 
-                  {/* リンク(#88)。行タップ(詳細編集)と押し分けられるよう、
-                      タップ領域の外に独立した1行として置く */}
-                  {links.length > 0 && (
-                    <div className="flex flex-wrap gap-2 px-2 pb-2">
-                      {links.map((url, i) => {
-                        const link = parseLink(url);
-                        const chip = linkChip(link);
-                        const base =
-                          "inline-flex h-10 max-w-full items-center gap-1 rounded-full border px-3 text-xs";
-                        const tone =
-                          chip.tone === "maps"
-                            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
-                            : chip.tone === "web"
-                              ? "border-blue-200 bg-blue-50 text-blue-700"
-                              : "border-gray-300 bg-gray-50 text-gray-600";
-                        // ローカルパスはブラウザから開けない。押したらパスをコピーする(#45)
-                        if (link.kind === "local") {
-                          return (
-                            <button
-                              key={i}
-                              type="button"
-                              className={`${base} ${tone}`}
-                              title={`${link.display}\n(タップでパスをコピー)`}
-                              onClick={() => onCopyPath(link.value)}
-                            >
-                              <span aria-hidden>{chip.icon}</span>
-                              <span className="truncate">{chip.label}</span>
-                            </button>
-                          );
-                        }
-                        return (
-                          <a
-                            key={i}
-                            href={link.value}
-                            target="_blank"
-                            rel="noreferrer"
-                            className={`${base} ${tone}`}
-                            title={link.display}
-                          >
-                            <span aria-hidden>{chip.icon}</span>
-                            <span className="truncate">{chip.label}</span>
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
                 </li>
               );
             })}

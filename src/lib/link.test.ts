@@ -2,7 +2,7 @@
 // parseLink の単体テスト(Issue #45)
 // ==============================================================
 import { describe, it, expect } from "vitest";
-import { isMapsUrl, linkChip, parseLink } from "./link";
+import { isMapsUrl, linkIcon, parseLink } from "./link";
 
 describe("parseLink: Webリンク", () => {
   it("https はそのまま web 扱い", () => {
@@ -87,31 +87,21 @@ describe("isMapsUrl", () => {
   });
 });
 
-describe("linkChip", () => {
-  it("地図リンクは 🗺️ と「地図」", () => {
-    const c = linkChip(parseLink("https://www.google.com/maps/search/?api=1&query=35.6,139.7"));
-    expect(c.tone).toBe("maps");
-    expect(c.icon).toBe("🗺️");
-    expect(c.label).toBe("地図");
+describe("linkIcon", () => {
+  it("地図リンクは 🗺️", () => {
+    expect(linkIcon(parseLink("https://www.google.com/maps/search/?api=1&query=35.6,139.7"))).toBe(
+      "\u{1F5FA}\u{FE0F}"
+    );
   });
-  it("Webリンクは 🔗 とホスト名(www.は落とす)", () => {
-    const c = linkChip(parseLink("https://www.example.com/very/long/path?a=1"));
-    expect(c.tone).toBe("web");
-    expect(c.icon).toBe("🔗");
-    expect(c.label).toBe("example.com");
+  it("その他の Web リンクは 🔗", () => {
+    expect(linkIcon(parseLink("https://www.example.com/very/long/path?a=1"))).toBe("\u{1F517}");
+    expect(linkIcon(parseLink("mailto:a@example.com"))).toBe("\u{1F517}");
   });
-  it("ホスト名を持たないURL(mailto)は元の文字列をラベルにする", () => {
-    expect(linkChip(parseLink("mailto:a@example.com")).label).toBe("mailto:a@example.com");
+  it("ローカルのファイルは 📄", () => {
+    expect(linkIcon(parseLink('"F:\\ripping\\web\\動画.mp4"'))).toBe("\u{1F4C4}");
   });
-  it("ローカルのファイルは 📄 とファイル名", () => {
-    const c = linkChip(parseLink('"F:\\ripping\\web\\動画.mp4"'));
-    expect(c.tone).toBe("local");
-    expect(c.icon).toBe("📄");
-    expect(c.label).toBe("動画.mp4");
-  });
-  it("ローカルのフォルダは 📁 とフォルダ名(末尾区切りも落とす)", () => {
-    const c = linkChip(parseLink("F:\\ripping\\web\\新しいフォルダー\\"));
-    expect(c.icon).toBe("📁");
-    expect(c.label).toBe("新しいフォルダー");
+  it("ローカルのフォルダは 📁(末尾区切りでもフォルダ)", () => {
+    expect(linkIcon(parseLink("F:\\ripping\\web\\新しいフォルダー\\"))).toBe("\u{1F4C1}");
+    expect(linkIcon(parseLink("\\\\server\\share\\資料"))).toBe("\u{1F4C1}");
   });
 });
