@@ -75,3 +75,71 @@ export function parseLink(raw: string): ParsedLink {
   const web = raw.trim();
   return { kind: "web", display: web, value: web, isFile: false };
 }
+
+// --------------------------------------------------------------
+// モバイル一覧のリンク表示(Issue #88)
+//   PC(表)はタスク名の右に 🔗 を並べるだけで足りるが、モバイルは
+//   「それが何のリンクか」が分からないと押す気になれない。とくに
+//   「ここにいる」記録(#86)は Google マップのリンクが本体なので、
+//   地図だと一目で分かることを要件にする。
+// --------------------------------------------------------------
+
+/** google.com / google.co.jp / google.de … の類か(maps.google.* は別で見る) */
+const GOOGLE_HOST_RE = /^(?:www\.)?google\.(?:co\.[a-z]{2}|com?\.[a-z]{2}|[a-z]{2,3})$/i;
+
+/**
+ * Google マップのURLか。
+ *   ・https://www.google.com/maps/... (アプリが吐く共有URL・#86 が作るURL)
+ *   ・https://maps.google.co.jp/...
+ *   ・https://maps.app.goo.gl/xxxx, https://goo.gl/maps/xxxx (共有短縮URL)
+ * ホスト名で判定する。文字列 "maps" を含むだけの他サイトを拾わないため。
+ */
+export function isMapsUrl(raw: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(raw.trim());
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+  const host = u.hostname.toLowerCase();
+  const isMapsPath = /^\/maps(\/|$)/.test(u.pathname);
+  if (host === "maps.app.goo.gl") return true;
+  if (host === "goo.gl") return isMapsPath;
+  if (host.startsWith("maps.google.")) return true;
+  if (GOOGLE_HOST_RE.test(host)) return isMapsPath;
+  return false;
+}
+
+/** ホスト名だけの短いラベル(www. は落とす)。URLとして読めなければ元の文字列 */
+function webLabel(value: string): string {
+  try {
+    return new URL(value).hostname.replace(/^www\./i, "") || value;
+  } catch {
+    return value;
+  }
+}
+
+/** ローカルパスの末尾要素(ファイル名・フォルダ名)。取れなければパス全体 */
+function localLabel(nativePath: string): string {
+  const last = nativePath.replace(/[\\/]+$/, "").split(/[\\/]/).pop();
+  return last && last !== "" ? last : nativePath;
+}
+
+export interface LinkChip {
+  /** 先頭に置く絵文字 */
+  icon: string;
+  /** チップに出す短いラベル(溢れは表示側で省略) */
+  label: string;
+  /** 見た目(色)の出し分けに使う種類 */
+  tone: "maps" | "web" | "local";
+}
+
+/** リンク1件を、モバイルのチップに出す「絵文字＋短いラベル」へ落とす */
+export function linkChip(link: ParsedLink): LinkChip {
+  if (link.kind === "local") {
+    return { icon: link.isFile ? "📄" : "📁", label: localLabel(link.display), tone: "local" };
+  }
+  if (isMapsUrl(link.value)) return { icon: "🗺️", label: "地図", tone: "maps" };
+  return { icon: "🔗", label: webLabel(link.value), tone: "web" };
+}
