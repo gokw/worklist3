@@ -1583,10 +1583,13 @@ export default function App() {
   // 日付移動(Ctrl+H=前日 / Ctrl+L=翌日 / Ctrl+K=今日。Issue #54)。
   // 相対移動(prev/next)と絶対移動(today)を1本にまとめる。挙動(複数選択のまとめ移動・
   // undo・並び固定の窓・カーソル追従)は3操作で共通。
+  // 対象は「引数のタスク(モバイルのスワイプ・操作シート。#100)」優先。
+  // 無ければ選択タスク、無ければカーソル1件(handlePostpone と同じ決め方)。
   const moveFocusedDate = useCallback(
-    (mode: "prev" | "next" | "today") => {
-      const pool =
-        selectedIds.length > 0
+    (mode: "prev" | "next" | "today", task?: Task) => {
+      const pool = task
+        ? [task]
+        : selectedIds.length > 0
           ? visibleTasks.filter((t) => selectedIds.includes(t.id))
           : visibleTasks.filter((t) => t.id === focusedId);
       if (pool.length === 0) return;
@@ -2120,7 +2123,11 @@ export default function App() {
             onEdit={actionHandlers.onEdit}
             onShowMemo={setMemoTarget}
             onCopyPath={handleCopyPath}
-            readOnly={!isPrimary}
+            onPostpone={actionHandlers.onPostpone}
+            onMoveDate={(t, mode) => moveFocusedDate(mode, t)}
+            onDelete={actionHandlers.onDelete}
+            // 手番を持たない端末(#91)も編集できない。ジェスチャを出さないために含める(#100 §3-6)
+            readOnly={!isPrimary || (baton.enabled && baton.role === "guest")}
           />
         ) : (
         <TaskTable
