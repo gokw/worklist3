@@ -91,7 +91,10 @@ export default function TaskListMobile({
   }
 
   return (
-    <div className="space-y-3">
+    // ページ自体はスクロールしない設計(App のルートが overflow-hidden)なので、
+    // 一覧が自前のスクロールコンテナを持つ。表(TaskTable)と同じ構造。
+    // これが無いと画面より下のタスクへ永久に到達できない(#97。💾メニューの #95 と同根)
+    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto">
       {groupByDate(tasks).map((g) => (
         <section key={g.date || "nodate"}>
           <div className="sticky top-0 z-10 flex items-baseline justify-between border-b border-gray-300 bg-gray-50 px-1 py-1">
