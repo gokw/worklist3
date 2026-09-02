@@ -300,6 +300,15 @@ async function writeBackup(tasks: Task[], force: boolean): Promise<void> {
 
   try {
     if (!(await current.ensureWritable())) {
+      // §3-5(#96): Drive のトークン失効は、まず「次のユーザー操作での無音取り直し」に
+      // 賭けて黙って保留する(スナップショットは pending に戻す)。警告を出すのは、
+      // その取り直しも失敗して「人の操作でしか直らない」と確定してから。
+      // force(ユーザーの明示操作)のときは保留せず、その場で結果を返す。
+      if (!force && current.id === "gdrive" && !awaitingGestureRenewal) {
+        awaitingGestureRenewal = true;
+        if (!pending) pending = tasks;
+        return;
+      }
       reportProblem("バックアップ先の権限が切れています。💾メニューから再接続してください", {
         needsReconnect: true,
       });
@@ -311,6 +320,7 @@ async function writeBackup(tasks: Task[], force: boolean): Promise<void> {
     // ここまで来れば控えは取れている。以降の失敗で「失敗」と報告しない
     lastBackedUpCount.set(current.id, tasks.length);
     warned = false; // 成功したら次の異常はまた1度通知する
+    awaitingGestureRenewal = false; // 書けたのなら取り直し待ちは解けている
     setState({ lastSuccessAt: nowHHMM(), problem: "", needsReconnect: false, offline: false });
     await cleanupRotation().catch((e) => console.error("古い世代の掃除に失敗しました", e));
   } catch (e) {
@@ -333,6 +343,7 @@ let writing = false;
 
 async function flush(): Promise<void> {
   if (writing || !state.connected || !pending) return; // 前の書き込みが終わるまで待つ
+  if (awaitingGestureRenewal) return; // トークンの取り直し待ち。成功時に flush し直す(§3-5)
   const tasks = pending;
   pending = null;
   writing = true;
@@ -346,6 +357,7 @@ async function flush(): Promise<void> {
 
 /** タスクが変わったことを知らせる(App の保存useEffectから呼ぶ)。非同期・非ブロッキング */
 export function notifyTasksChanged(tasks: Task[]): void {
+  latestTasks = tasks; // 未接続でも控えておく(操作起点の自動復帰で使う。§3-4)
   if (!state.connected) return;
   if (!batonAllowsWrite()) return; // 手番の無い端末は控えも書かない(#91 §4.3)
   pending = tasks;
@@ -378,6 +390,8 @@ export function flushBackupNow(): void {
 // 接続・再接続・解除
 // -------------------------------------------------------------
 async function applyConnect(r: ConnectResult, tasks: Task[]): Promise<boolean> {
+  latestTasks = tasks;
+  awaitingGestureRenewal = false; // 接続をやり直したら保留状態は仕切り直す
   if (!r.ok) {
     setState({
       connected: false,
@@ -429,6 +443,8 @@ export async function disconnectBackupDir(): Promise<void> {
   await current.disconnect();
   lastBackedUpCount.set(current.id, null);
   pending = null;
+  awaitingGestureRenewal = false;
+  renewFailedAt = 0;
   window.clearTimeout(flushTimer);
   setState({
     connected: false,
@@ -466,6 +482,8 @@ export async function switchBackupTarget(id: BackupTargetId, tasks: Task[]): Pro
   // 進行中の書き込み予約は捨てる(切替先へ書くべきなので)
   window.clearTimeout(flushTimer);
   pending = null;
+  awaitingGestureRenewal = false;
+  renewFailedAt = 0;
   current = next;
   if (typeof localStorage !== "undefined") localStorage.setItem(LS_TARGET, id);
   setState({
@@ -515,6 +533,89 @@ if (typeof window !== "undefined") {
   window.addEventListener("online", () => {
     if (state.connected && pending) void flush();
   });
+}
+
+// -------------------------------------------------------------
+// トークンの先回り更新と、失効時の自動復帰(#96 仕様書 §3-4・§3-5)
+//   GIS はユーザー操作の外からのトークン取得をポップアップブロックで
+//   落とすため、更新は必ず「操作のついで」に行う。ハンドラから
+//   requestAccessToken までネットワーク待ちを挟んではならない。
+// -------------------------------------------------------------
+
+/** 失効の書き込み失敗を、警告せず「次のユーザー操作での取り直し」に賭けている状態 */
+let awaitingGestureRenewal = false;
+/** 取り直し・自動復帰の進行中フラグ(多重発火の抑止) */
+let renewing = false;
+/** 直近の無音取得の失敗時刻。操作のたびに認証画面が瞬くのを避ける */
+let renewFailedAt = 0;
+const RENEW_RETRY_COOLDOWN_MS = 5 * 60_000;
+/** 最後に受け取ったタスク一覧。操作起点の自動復帰(applyConnect)で使う */
+let latestTasks: Task[] = [];
+
+/** 取り直し待ちを解いて、保留していたスナップショットを書き直す */
+function resumeAfterRenewal(): void {
+  renewFailedAt = 0;
+  awaitingGestureRenewal = false;
+  if (pending) void flush();
+}
+
+/**
+ * ユーザー操作(pointerdown)のついでにトークンを取り直す。
+ *   ・接続中: 残り10分を切っていたら先回りで無音更新(§3-4)
+ *   ・未接続で再接続待ち: 起動時の無音復帰が失敗した後なら、繋ぎ直しを試す
+ * keydown は使わない(タイプ中に認証画面が瞬くのを避ける。仕様書 §3-4)。
+ */
+function maybeRenewOnGesture(): void {
+  if (current.id !== "gdrive") return;
+  if (renewing || Date.now() - renewFailedAt < RENEW_RETRY_COOLDOWN_MS) return;
+
+  if (state.connected) {
+    if (!gdriveTarget.needsTokenRenewal()) {
+      // 別タブが取り直してくれた等で、既に有効なら賭けを解くだけでよい
+      if (awaitingGestureRenewal) resumeAfterRenewal();
+      return;
+    }
+    renewing = true;
+    // ここは await しない(ハンドラを同期で抜けてポップアップの時間窓を守る)
+    void gdriveTarget.renewTokenSilently().then((ok) => {
+      renewing = false;
+      if (ok) {
+        resumeAfterRenewal();
+      } else {
+        renewFailedAt = Date.now();
+        if (awaitingGestureRenewal) {
+          // 賭けに負けた。ここで初めて「人の操作でしか直らない」と確定する(§3-5)
+          awaitingGestureRenewal = false;
+          reportProblem("バックアップ先の権限が切れています。💾メニューから再接続してください", {
+            needsReconnect: true,
+          });
+        }
+      }
+    });
+    return;
+  }
+
+  // 起動時の無音復帰がポップアップブロックで失敗していた場合、
+  // 操作のついでなら通る。成功すれば警告バナーも自然に消える
+  if (!state.needsReconnect) return;
+  renewing = true;
+  void gdriveTarget
+    .restore()
+    .then(async (r) => {
+      if (r.ok) {
+        await applyConnect(r, latestTasks);
+        renewFailedAt = 0;
+      } else {
+        renewFailedAt = Date.now();
+      }
+    })
+    .finally(() => {
+      renewing = false;
+    });
+}
+
+if (typeof window !== "undefined") {
+  document.addEventListener("pointerdown", maybeRenewOnGesture, true);
 }
 
 // -------------------------------------------------------------

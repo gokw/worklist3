@@ -41,7 +41,12 @@ Dependabot は上記とは別に、脆弱な依存を見つけると自動で「
 
 - APIキーやトークンはコードに直接書かず、`.env` 等に置く（`.gitignore` で除外済み）。
 - Google 連携の Client ID / Calendar ID は機微情報ではないため localStorage 保持で問題ない。
-  アクセストークンはメモリ保持のみで永続化しない（[gcalClient.ts](../src/lib/gcalClient.ts) 参照）。
+- Drive 用のアクセストークンは**有効期限つきで localStorage に保持する**（#96、[googleAuth.ts](../src/lib/googleAuth.ts) 参照）。
+  主保存データ（タスク全件）が同じ localStorage にある以上、トークンだけメモリに置いても
+  防御線にならないと再評価した。寿命は約1時間・スコープは `drive.file`（このアプリが作った
+  ファイルのみ）に限定し、切断時は必ず削除して revoke する。
+  カレンダー用のトークンはユーザー操作起点でしか取得しないため、従来どおりメモリ保持のみ
+  （[gcalClient.ts](../src/lib/gcalClient.ts) 参照）。
 
 ## 手元での確認方法
 
