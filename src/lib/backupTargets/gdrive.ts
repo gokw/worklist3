@@ -7,8 +7,8 @@
 //   ・スコープは drive.file。アプリが作ったファイルだけを扱う最小権限で、
 //     かつユーザーは Drive の画面で普通に見てダウンロードできる
 //     (appdata の隠し領域は「最後の砦が目視できない」ので採らない)
-//   ・アクセストークンはメモリのみ。localStorage に持つのは
-//     Client ID・端末名・ファイルID(機微でない値)だけ
+//   ・アクセストークンは期限つきで localStorage に保持する(#96、googleAuth.ts 参照)。
+//     リロード・タブ破棄後も期限内なら認証画面を経由せず復帰できる
 //   ・ファイル名には「グループ名」を含める(#91)。グループ名は端末の識別子ではなく
 //     「どのデータを見るか」を決める値で、同じ値の端末どうしが1つのデータを共有する。
 //     誰が書いてよいかは手番(baton.ts)が決めるので、共有しても奪い合いにはならない。
@@ -143,13 +143,18 @@ export class GdriveBackupTarget implements BackupTarget {
    * 書き込み中の失効からの復帰は非interactiveで、駄目なら再接続を促す。
    */
   private async token(interactive = false): Promise<string> {
-    const cached = this.tokens.current;
+    const cached = this.tokens.current; // 期限内のみ返る(失効間際は §3-2 の余裕で先に切れる)
     if (cached) return cached;
     const { clientId } = loadGdriveConfig();
     if (!clientId) throw new NeedsReconnect("Client ID が設定されていません");
     let token: string;
     try {
-      token = await this.tokens.acquire(clientId, interactive);
+      token = await this.tokens.acquire(clientId, interactive ? "interactive" : "silent");
+      // 同意画面で Drive のチェックを外されたまま接続した場合、consent を出さないと
+      // 付け直せない(仕様書 §3-6)。対話中に限り、その場で1度だけ求め直す。
+      if (interactive && this.tokens.missingRequestedScope) {
+        token = await this.tokens.acquire(clientId, "consent");
+      }
     } catch (e) {
       const detail = e instanceof Error && e.message ? `: ${e.message}` : "";
       throw new NeedsReconnect(
@@ -301,6 +306,28 @@ export class GdriveBackupTarget implements BackupTarget {
     if (!this.connected) return false;
     try {
       await this.token(); // 失効していれば黙って取り直す
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** トークンが無い・失効間近で、ユーザー操作のついでの取り直しが要るか(仕様書 §3-4) */
+  needsTokenRenewal(): boolean {
+    return this.connected && this.tokens.shouldRenew();
+  }
+
+  /**
+   * 無音の取り直し。**ユーザー操作のハンドラから直接呼ぶこと**(仕様書 §3-4)。
+   * 操作から続く時間窓(透過的アクティベーション、概ね5秒)の中でだけ
+   * ポップアップが許される。接続中は GIS もクライアントも初期化済みなので、
+   * requestAccessToken までネットワーク待ちは挟まらない。
+   */
+  async renewTokenSilently(): Promise<boolean> {
+    const { clientId } = loadGdriveConfig();
+    if (!clientId) return false;
+    try {
+      await this.tokens.acquire(clientId, "silent");
       return true;
     } catch {
       return false;
