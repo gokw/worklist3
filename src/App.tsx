@@ -70,7 +70,7 @@ import {
 } from "./lib/baton";
 import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import { type UiOverride, useIsMobile } from "./lib/useIsMobile";
-import { type GeoPoint, geoSupported, locationMemo, mapsUrl, resolveTitle } from "./lib/geo";
+import { type GeoPoint, geoSupported, locationMemos, mapsUrl, resolveTitle } from "./lib/geo";
 import {
   getWriterState,
   requestTakeover,
@@ -813,10 +813,13 @@ export default function App() {
    * 「ここにいる」記録(Issue #86)。いまいる場所を1件のタスクとして書き留める。
    * 開始も終了も現在時刻にして、その場で完了した記録として残す
    * (滞在時間を測るのではなく「そこにいた」ことを残すのが目的)。
-   * 座標はメモ、マップURLはリンクに入れる。Task の構造は変えない。
+   * コメントはメモ1、座標はメモ2、マップURLはリンクに入れる(#104)。
+   * 座標はコメントの有無によらずメモ2に固定する。記録ごとに位置が動くと、
+   * あとから探すときにどちらを見ればよいか分からなくなるため。
+   * Task の構造は変えない。
    */
   const handleRecordLocation = useCallback(
-    (title: string, point: GeoPoint) => {
+    (title: string, comment: string, point: GeoPoint) => {
       const now = nowHHMM();
       const task = createTask({
         title: resolveTitle(title, point),
@@ -824,7 +827,7 @@ export default function App() {
         date: todayStr(),
         actStart: now,
         actEnd: now,
-        memos: [locationMemo(point), "", ""],
+        memos: locationMemos(comment, point),
         links: [mapsUrl(point.lat, point.lng)],
       });
       pushUndo("ここにいる記録");

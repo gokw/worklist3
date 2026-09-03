@@ -55,6 +55,17 @@ export function locationMemo(p: GeoPoint): string {
 }
 
 /**
+ * 記録のメモ3枠を作る(#104)。
+ *   メモ1 = コメント / メモ2 = 座標 / メモ3 = 空
+ * **座標はコメントの有無によらずメモ2に固定する。** 空のときだけ繰り上げると
+ * 記録ごとに座標の居場所が変わり、あとから探すときにどちらを見ればよいか
+ * 分からなくなる。空のメモ1が残るだけなら実害はない。
+ */
+export function locationMemos(comment: string, p: GeoPoint): string[] {
+  return [comment.trim(), locationMemo(p), ""];
+}
+
+/**
  * タスク名を決める。
  * 入力が空(目印だけ・空白だけ)なら座標を入れる。名前が無いと
  * 一覧で見分けが付かず、あとから地図で辿ることもできなくなるため。

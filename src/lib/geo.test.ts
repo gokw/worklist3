@@ -7,6 +7,7 @@ import {
   formatCoords,
   geoErrorMessage,
   locationMemo,
+  locationMemos,
   mapsUrl,
   resolveTitle,
 } from "./geo";
@@ -80,6 +81,23 @@ describe("resolveTitle", () => {
 
   it("前後の空白は落とす", () => {
     expect(resolveTitle("  浅草寺  ", p)).toBe("📍 浅草寺");
+  });
+});
+
+describe("locationMemos", () => {
+  const p = { lat: 35.710063, lng: 139.8107, accuracy: 12 };
+
+  it("メモ1=コメント / メモ2=座標 に入れる", () => {
+    expect(locationMemos("昼食", p)).toEqual(["昼食", "35.710063, 139.810700 (±12m)", ""]);
+  });
+
+  it("コメントが空でも座標はメモ2のまま(居場所を動かさない)", () => {
+    expect(locationMemos("", p)).toEqual(["", "35.710063, 139.810700 (±12m)", ""]);
+    expect(locationMemos("   ", p)).toEqual(["", "35.710063, 139.810700 (±12m)", ""]);
+  });
+
+  it("コメントの前後の空白は落とす", () => {
+    expect(locationMemos("  打ち合わせ  ", p)[0]).toBe("打ち合わせ");
   });
 });
 
