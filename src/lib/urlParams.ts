@@ -8,6 +8,12 @@
 //   &category=...                               (カテゴリ絞り込み)
 //   &q=...                                      (タスク名フィルタ。/パターン/ で正規表現)
 //   &ui=mobile|desktop|auto                     (表示の強制。既定は画面幅で自動)
+//   &action=here                                (開いた直後に「ここにいる」記録を開く。#105)
+//
+//   action は「表示状態」ではなく1回きりの操作なので、writeUrlSettings() が
+//   起動直後にクエリを組み直す際、書き戻されずに URL から消える。これは意図した
+//   挙動で、リロードで記録ダイアログが何度も開くのを防いでいる
+//   (ブックマーク側には残るので、次にタップすればまた開く)。
 // ==============================================================
 import type { DoneFilter, ViewMode, WorkMode } from "../types";
 import type { UiOverride } from "./useIsMobile";
@@ -27,6 +33,22 @@ export interface UrlSettings {
   q?: string;
   /** 表示の強制(mobile/desktop)。未指定は画面幅で自動 */
   ui?: UiOverride;
+}
+
+/**
+ * 起動時に1回だけ行う操作(#105)。
+ * スマートフォンのブックマークから「さっと起動、さっと記録」するための入口。
+ */
+export type StartupAction = "here" | undefined;
+
+/** クエリ文字列から起動時の操作を読む。純粋関数なのでテスト対象 */
+export function parseStartupAction(search: string): StartupAction {
+  return new URLSearchParams(search).get("action") === "here" ? "here" : undefined;
+}
+
+/** 現在のURLから起動時の操作を読む */
+export function readStartupAction(): StartupAction {
+  return parseStartupAction(typeof window !== "undefined" ? window.location.search : "");
 }
 
 /** 現在のURLから設定を読む(不正な値は無視) */

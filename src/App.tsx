@@ -68,7 +68,7 @@ import {
   setBatonState,
   type BatonState,
 } from "./lib/baton";
-import { readUrlSettings, writeUrlSettings } from "./lib/urlParams";
+import { readStartupAction, readUrlSettings, writeUrlSettings } from "./lib/urlParams";
 import { type UiOverride, useIsMobile } from "./lib/useIsMobile";
 import { type GeoPoint, geoSupported, locationMemo, mapsUrl, resolveTitle } from "./lib/geo";
 import {
@@ -110,6 +110,12 @@ import type { ParsedRow } from "./lib/bulkParse";
 
 // URLクエリ → localStorage → 既定 の順に初期値を決める(Issue #4)
 const urlInit = readUrlSettings();
+/**
+ * ブックマークから直接「ここにいる」記録を開く(#105)。
+ * 位置情報が使えない環境でも開く — 開かずに黙っていると、URLを叩いた人には
+ * 何が起きなかったのか分からない。使えない事情はダイアログ自身が説明する。
+ */
+const startupAction = readStartupAction();
 
 /** undoできる窓の長さ(ms)。トースト表示中=この間だけ元に戻せる。Issue #14 */
 const UNDO_WINDOW_MS = 6000;
@@ -188,7 +194,7 @@ export default function App() {
   const [restoreOpen, setRestoreOpen] = useState(false);
 
   /** 「ここにいる」記録のダイアログを開いているか(Issue #86) */
-  const [locationOpen, setLocationOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(startupAction === "here");
 
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -817,6 +823,13 @@ export default function App() {
    */
   const handleRecordLocation = useCallback(
     (title: string, point: GeoPoint) => {
+      // 読み取り専用のとき upsert は黙って落ちる(#57/#91)。先に見ておかないと、
+      // 何も追加されていないのに下の「追加しました」で成功に見えてしまう。
+      // ダイアログは閉じる — 開いたままだと、切り替えを促すバナーが隠れてしまう。
+      if (!ensureWritable()) {
+        setLocationOpen(false);
+        return;
+      }
       const now = nowHHMM();
       const task = createTask({
         title: resolveTitle(title, point),
@@ -833,7 +846,7 @@ export default function App() {
       showToast("ここにいる記録を追加しました", true);
       revealTask(task);
     },
-    [pushUndo, upsert, showToast, revealTask]
+    [ensureWritable, pushUndo, upsert, showToast, revealTask]
   );
 
   const handleBulkAdd = useCallback(
