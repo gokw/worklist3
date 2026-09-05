@@ -1,0 +1,31 @@
+{
+  "id": "/worklist3/",
+  "name": "worklist3",
+  "short_name": "worklist3",
+  "description": "その日にやることを1本の線で管理するタスクリスト",
+  "lang": "ja",
+  "start_url": "/worklist3/",
+  "scope": "/worklist3/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#ffffff",
+  "launch_handler": {
+    "client_mode": "navigate-existing"
+  },
+  "icons": [
+    { "src": "/worklist3/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/worklist3/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/worklist3/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "ここにいる記録",
+      "short_name": "ここにいる",
+      "description": "いまいる場所をその場で記録する",
+      "url": "/worklist3/?action=here",
+      "icons": [
+        { "src": "/worklist3/shortcut-here-192.png", "sizes": "192x192", "type": "image/png" }
+      ]
+    }
+  ]
+}
