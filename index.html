@@ -3,6 +3,13 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- ホーム画面へ追加してアプリとして開くための宣言(段階1)。
+         Service Worker は入れていないので、オフラインでは起動しない。
+         インストールしないブラウザにとっては、ここは無視されるだけで
+         従来の使い方は一切変わらない。 -->
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icon-192.png" />
+    <meta name="theme-color" content="#ffffff" />
     <title>worklist3</title>
   </head>
   <body>
