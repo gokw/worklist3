@@ -142,6 +142,8 @@ interface Props {
   onSetBackupCompress: (on: boolean) => void;
   /** Drive 上の控えを一覧して復元する */
   onRestoreFromDrive: () => void;
+  /** Drive の内容を見るだけ(手元は変えない。#109 §4.2) */
+  onViewDrive: () => void;
   /** 「ここにいる」記録を開く(Issue #86)。モバイルでのみ出す */
   onRecordLocation: () => void;
   /** この環境で位置情報が使えるか(使えなければボタンを出さない) */
@@ -801,6 +803,20 @@ export default function Toolbar(p: Props) {
                         title="Drive 上の控え(ミラーと日次14世代)から選んで読み込みます"
                       >
                         ♻ Drive の控えから復元
+                      </button>
+                    )}
+                    {/* 見るだけ(#109 §4.2)。復元と違い、この端末のデータには触れない。
+                        手番の有無に関わらず使える */}
+                    {p.backup.targetId === "gdrive" && (
+                      <button
+                        className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                        onClick={() => {
+                          p.onViewDrive();
+                          setDataMenuOpen(false);
+                        }}
+                        title="Drive の内容を表示します。この端末のデータは変わりません"
+                      >
+                        👁 Drive の内容を見る(手元は変えません)
                       </button>
                     )}
                     <button

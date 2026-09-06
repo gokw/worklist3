@@ -24,7 +24,9 @@ import {
   dailyFileName,
   mirrorFileName,
   type OwnerRecord,
-  rescueFileName,
+  type SideEntry,
+  sideFileInfo,
+  sideFileName,
 } from "./types";
 
 const SCOPE = "https://www.googleapis.com/auth/drive.file";
@@ -535,16 +537,62 @@ export class GdriveBackupTarget implements BackupTarget {
   }
 
   /**
-   * 降格した端末の未送信データを救い出す(#91 §4.6)。
+   * 本流から外れた控えを別名で書き出す。
+   *   救出   … 降格した端末の未送信ぶん(#91 §4.6)
+   *   引継前 … 上書きされる直前のミラー(#109 §4.3)
    * ミラーへ書くと他端末の系譜を壊すので、必ず別名にする。
    * 名前は日次コピーの規約に一致しないため、ローテーション掃除の対象にならない。
    */
-  async writeRescue(body: BackupBody, deviceId: string, stamp: string): Promise<string> {
+  async writeSideFile(
+    body: BackupBody,
+    kind: "救出" | "引継前",
+    deviceId: string,
+    stamp: string
+  ): Promise<string> {
     const { root } = await this.folders();
-    const name = rescueFileName(this.prefix, deviceId, stamp, this.compress);
+    const name = sideFileName(this.prefix, kind, deviceId, stamp, this.compress);
     const { blob } = await this.encode(body);
     await this.putBlob(name, root, blob);
     return name;
+  }
+
+  /**
+   * いまのミラーを「引継前」として退避する(#109 §4.3 手順3)。
+   * **「手元のまま引き継ぐ」で相手の成果を消す事故に対する唯一の網**なので、
+   * 手番ファイルを書き換える前に必ずここを通すこと。
+   * ミラーが無ければ上書きされるものも無いので、空文字を返して成功扱いにする。
+   */
+  async snapshotMirror(deviceId: string, stamp: string): Promise<string> {
+    const mirror = await this.readMirror();
+    if (!mirror) return "";
+    const parsed = JSON.parse(mirror.text);
+    const count = Array.isArray(parsed) ? parsed.length : 0;
+    return await this.writeSideFile(
+      { count, toJson: () => mirror.text },
+      "引継前",
+      deviceId,
+      stamp
+    );
+  }
+
+  /**
+   * 退避・救出ファイルの一覧(#109 §4.4)。
+   * これが無いと、書き出せても読み戻せない(#109 で塞いだ穴)。
+   * 日次コピーと違いフォルダ直下にあるので、こちらは root を見る。
+   */
+  async listSideFiles(): Promise<SideEntry[]> {
+    if (!this.connected) return [];
+    const { root } = await this.folders();
+    const q = `'${root}' in parents and trashed=false`;
+    const r = await this.json<{ files?: { id: string; name: string }[] }>(
+      `${API}?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=100`
+    );
+    const out: SideEntry[] = [];
+    for (const f of r.files ?? []) {
+      const info = sideFileInfo(this.prefix, f.name);
+      if (info) out.push({ key: f.id, name: f.name, ...info });
+    }
+    return out;
   }
 
   /** 名前で探して中身を差し替える。無ければ作る(小さなJSON向け) */
@@ -571,8 +619,11 @@ export class GdriveBackupTarget implements BackupTarget {
     await this.call(`${UPLOAD}?uploadType=multipart&fields=id`, { method: "POST", body: form });
   }
 
-  /** 復元用: 控えの中身を JSON 文字列で取り出す(圧縮されていれば展開する) */
-  async readEntry(entry: DailyEntry | "mirror"): Promise<string> {
+  /**
+   * 復元・閲覧用: 控えの中身を JSON 文字列で取り出す(圧縮されていれば展開する)。
+   * 日次コピー・退避・救出のどれでも使えるよう、必要なのは key だけにしてある。
+   */
+  async readEntry(entry: { key: string } | "mirror"): Promise<string> {
     const id = entry === "mirror" ? this.mirrorId : entry.key;
     if (!id) throw new Error("控えが見つかりません");
     const res = await this.call(`${API}/${id}?alt=media`);

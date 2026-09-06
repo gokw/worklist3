@@ -12,11 +12,23 @@ interface Props {
   fileName: string;
   /** 今画面にあるタスク件数(全リセットで消える件数の目安) */
   currentCount: number;
+  /**
+   * 退避・救出ファイルか(#109 §4.4)。これらは本流から外れた断片なので、
+   * 追加読込を既定にし、全リセットには確認をもう一段挟む。
+   * 断片で本流を丸ごと置き換えるのは、直すつもりで新しい喪失を作る操作。
+   */
+  sideFile?: boolean;
   onSelect: (mode: ImportMode) => void;
   onCancel: () => void;
 }
 
-export default function ImportModeDialog({ fileName, currentCount, onSelect, onCancel }: Props) {
+export default function ImportModeDialog({
+  fileName,
+  currentCount,
+  sideFile,
+  onSelect,
+  onCancel,
+}: Props) {
   useEffect(() => {
     const h = (e: KeyboardEvent) => {
       if (e.key === "Escape") onCancel();
@@ -38,12 +50,22 @@ export default function ImportModeDialog({ fileName, currentCount, onSelect, onC
           ファイル: {fileName}
         </p>
 
+        {sideFile && (
+          <p className="mb-3 rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900">
+            これは退避・救出ファイル（本流から外れた控え）です。
+            <b>追加で読み込む</b>を選んでください。全リセットにすると、いまのデータが
+            この断片だけに置き換わります。
+          </p>
+        )}
+
         <div className="space-y-3">
           <button
             className="block w-full rounded-lg border border-blue-200 bg-blue-50 p-3 text-left hover:bg-blue-100"
             onClick={() => onSelect("merge")}
           >
-            <p className="text-sm font-semibold text-blue-800">➕ 追加で読み込む(部分復元)</p>
+            <p className="text-sm font-semibold text-blue-800">
+              ➕ 追加で読み込む(部分復元){sideFile && "　← 推奨"}
+            </p>
             <p className="mt-1 text-xs text-gray-600">
               今のデータは残したまま取り込みます。無いものは追加、同じIDで内容が違うものは
               ファイルの内容で上書き。消したタスクを昔のバックアップから戻したいときに。
@@ -52,7 +74,19 @@ export default function ImportModeDialog({ fileName, currentCount, onSelect, onC
 
           <button
             className="block w-full rounded-lg border border-red-200 bg-red-50 p-3 text-left hover:bg-red-100"
-            onClick={() => onSelect("replace")}
+            onClick={() => {
+              // 断片で本流を潰す操作なので、退避・救出のときだけ確認を挟む
+              if (
+                sideFile &&
+                !window.confirm(
+                  "これは本流から外れた控えです。\n\n" +
+                    `全リセットで読み込むと、いまの${currentCount}件はこのファイルの内容だけに置き換わります。\n` +
+                    "本当に続けますか？"
+                )
+              )
+                return;
+              onSelect("replace");
+            }}
           >
             <p className="text-sm font-semibold text-red-800">♻ すべてリセットして読み込む</p>
             <p className="mt-1 text-xs text-gray-600">

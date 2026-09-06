@@ -1,25 +1,38 @@
 // ==============================================================
-// Drive の控えから復元(変更仕様書 §4.7)
+// Drive の控えの一覧(変更仕様書 §4.7、変更仕様書_引き継ぎを3つに分ける.md §4.2/§4.4)
 //   ローカルフォルダと違い Drive はエクスプローラで開けないので、
-//   控え(ミラー + 日次14世代)を一覧して選べるようにする。
-//   選んだ後は既存のインポートフローへそのまま流すので、
-//   マージ規則も結果の見え方も従来と同じ。新しい書き換え経路は作らない。
+//   控えを一覧して選べるようにする。用途は2つ。
+//     import … 取り込む(既存のインポートフローへ流す。手元が変わる)
+//     view   … 見るだけ(#109 §4.2。手元には触れない)
+//
+//   退避・救出ファイル(#109 §4.4)もここに出す。出さないと、書けているのに
+//   読み戻せない。ただし日次と混ぜない。「最新の控え」と取り違えて全リセットで
+//   読み込まれると、直すつもりで新しい喪失を作るため、節を分けて注意を添える。
 // ==============================================================
 import { useEffect, useState } from "react";
-import type { DailyEntry } from "../lib/backupTargets/types";
+import type { DailyEntry, SideEntry } from "../lib/backupTargets/types";
+import { formatStamp } from "../lib/baton";
 
-export type RestoreChoice = { kind: "mirror" } | { kind: "daily"; entry: DailyEntry };
+export type RestoreChoice =
+  | { kind: "mirror" }
+  | { kind: "daily"; entry: DailyEntry }
+  | { kind: "side"; entry: SideEntry };
 
 interface Props {
+  /** 取り込むのか、見るだけなのか */
+  purpose: "import" | "view";
   /** 控えの一覧を取りに行く。失敗したらエラーを投げる */
   load: () => Promise<DailyEntry[]>;
-  /** 選ばれた控えを取り込む(インポートフローへ流す) */
-  onPick: (choice: RestoreChoice, label: string) => void;
+  /** 退避・救出の一覧。取れなければ空でよい(一覧の主目的を妨げない) */
+  loadSideFiles: () => Promise<SideEntry[]>;
+  /** 選ばれた控え。isSideFile なら取り込みの既定を追加読込にする */
+  onPick: (choice: RestoreChoice, label: string, isSideFile: boolean) => void;
   onClose: () => void;
 }
 
 export default function RestoreFromDriveDialog(p: Props) {
   const [entries, setEntries] = useState<DailyEntry[] | null>(null);
+  const [sides, setSides] = useState<SideEntry[]>([]);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -33,6 +46,12 @@ export default function RestoreFromDriveDialog(p: Props) {
       .catch((e) => {
         if (alive) setError(e instanceof Error ? e.message : "控えの一覧を取得できませんでした");
       });
+    // 退避・救出は補助情報。取れなくても日次の一覧は使えるようにする
+    p.loadSideFiles()
+      .then((list) => {
+        if (alive) setSides([...list].sort((a, b) => (a.stamp < b.stamp ? 1 : -1)));
+      })
+      .catch((e) => console.error("退避・救出の一覧を取得できませんでした", e));
     return () => {
       alive = false;
     };
@@ -58,10 +77,13 @@ export default function RestoreFromDriveDialog(p: Props) {
         className="max-h-[80vh] w-full max-w-md overflow-auto rounded-lg bg-white p-4 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="mb-1 text-base font-semibold text-gray-800">Drive の控えから復元</h2>
+        <h2 className="mb-1 text-base font-semibold text-gray-800">
+          {p.purpose === "view" ? "Drive の内容を見る" : "Drive の控えから復元"}
+        </h2>
         <p className="mb-3 text-xs text-gray-500">
-          選ぶと、いつものインポート(追加読込 / 全リセット読込)に進みます。
-          この場でデータが書き換わることはありません。
+          {p.purpose === "view"
+            ? "選ぶと画面に表示します。この端末に保存されているデータは変わりません。"
+            : "選ぶと、いつものインポート(追加読込 / 全リセット読込)に進みます。この場でデータが書き換わることはありません。"}
         </p>
 
         {error && <p className="mb-2 text-sm text-amber-700">⚠ {error}</p>}
@@ -71,7 +93,7 @@ export default function RestoreFromDriveDialog(p: Props) {
           <div className="space-y-0.5">
             <button
               className={`${row} font-semibold`}
-              onClick={() => p.onPick({ kind: "mirror" }, "最新の控え(ミラー)")}
+              onClick={() => p.onPick({ kind: "mirror" }, "最新の控え(ミラー)", false)}
             >
               ⭐ 最新の控え(ミラー)
               <span className="ml-1 text-xs font-normal text-gray-500">
@@ -88,7 +110,7 @@ export default function RestoreFromDriveDialog(p: Props) {
               <button
                 key={e.key}
                 className={row}
-                onClick={() => p.onPick({ kind: "daily", entry: e }, e.date)}
+                onClick={() => p.onPick({ kind: "daily", entry: e }, e.date, false)}
                 title={e.name}
               >
                 📄 {e.date}
@@ -98,6 +120,28 @@ export default function RestoreFromDriveDialog(p: Props) {
               <p className="px-3 py-2 text-sm text-gray-500">
                 日次の控えはまだありません(接続した翌日から貯まります)
               </p>
+            )}
+
+            {/* 退避・救出(#109 §4.4)。日次と混ぜない */}
+            {sides.length > 0 && (
+              <>
+                <div className="px-3 pb-1 pt-3 text-[11px] font-semibold text-gray-400">
+                  退避・救出({sides.length}件) — 自動では消えません
+                </div>
+                <p className="px-3 pb-1 text-[11px] text-amber-700">
+                  本流から外れた控えです。取り込むときは「追加で読み込む」を選んでください。
+                </p>
+                {sides.map((e) => (
+                  <button
+                    key={e.key}
+                    className={row}
+                    onClick={() => p.onPick({ kind: "side", entry: e }, e.name, true)}
+                    title={e.name}
+                  >
+                    {e.kind === "救出" ? "🛟" : "📦"} {e.kind}　{formatStamp(e.stamp)}
+                  </button>
+                ))}
+              </>
             )}
           </div>
         )}

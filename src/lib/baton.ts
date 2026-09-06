@@ -49,6 +49,49 @@ export function canWrite(enabled: boolean, role: BatonRole): boolean {
   return role !== "guest";
 }
 
+/**
+ * いま画面に出ているデータを localStorage とバックアップへ書き戻してよいか。
+ * **保存してよいかの判定はここ1か所に集約する**(#109 §5)。
+ *
+ * viewing(閲覧中)は必ず false。見るだけの操作で手元が書き換わるなら、
+ * それは #109 で潰したはずの事故そのもの。ここを迂回する保存経路を作らないこと。
+ */
+export function canPersist(p: {
+  /** 他端末のデータを表示しているだけの状態か */
+  viewing: boolean;
+  /** 窓ロック(#57)で、この窓が書き手か */
+  isPrimary: boolean;
+  enabled: boolean;
+  role: BatonRole;
+}): boolean {
+  if (p.viewing) return false;
+  if (!p.isPrimary) return false;
+  return canWrite(p.enabled, p.role);
+}
+
+/**
+ * 「手元のまま引き継ぐ」(#109 §4.3)の確認に出す警告。空なら特筆すべき危険はない。
+ *
+ * この操作は Drive 側を手元の内容で上書きする。**相手の方が件数が多いときは、
+ * 消える可能性のある差分を必ず数で見せる。** 件数が同じでも中身は違い得るので、
+ * 「危険なし」とは決して言わない。
+ */
+export function keepWarning(mirrorCount: number | null, localCount: number): string {
+  if (mirrorCount === null) {
+    return "Drive の現在の件数を確認できませんでした。何が上書きされるか分かりません。";
+  }
+  if (mirrorCount > localCount) {
+    return `Drive 側の方が ${mirrorCount - localCount} 件多く残っています。その差は失われます。`;
+  }
+  return "";
+}
+
+/** 退避・救出ファイルの時刻(YYYYMMDD-HHmm)を読みやすくする */
+export function formatStamp(stamp: string): string {
+  const m = /^(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})$/.exec(stamp);
+  return m ? `${m[1]}/${m[2]}/${m[3]} ${m[4]}:${m[5]}` : stamp;
+}
+
 /** バナーに出す相手の名前。端末名は任意入力なので空を許す */
 export function ownerLabel(deviceName: string): string {
   const n = deviceName.trim();
