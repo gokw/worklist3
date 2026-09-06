@@ -133,15 +133,45 @@ export interface OwnerRecord {
 }
 
 /**
- * 降格した端末の未送信データを救い出すファイルの名前。
- * 日次コピーの規約 `<prefix>-YYYY-MM-DD.json(.gz)` に**一致させない**こと。
+ * 本流から外れた控えの種別。
+ *   救出   … 手番を失っていた端末の未送信ぶんを逃がしたもの(#91 §4.6)
+ *   引継前 … 「手元のまま引き継ぐ」で上書きされる直前のミラー(#109 §4.3)
+ *
+ * どちらも日次コピーの規約 `<prefix>-YYYY-MM-DD.json(.gz)` に**一致させない**こと。
  * 一致するとローテーション掃除に巻き込まれて消える。
  */
-export function rescueFileName(
+export type SideFileKind = "救出" | "引継前";
+
+/** 本流から外れた控えの名前。`<prefix>-<種別>-<端末IDの先頭6桁>-YYYYMMDD-HHmm.json(.gz)` */
+export function sideFileName(
   prefix: string,
+  kind: SideFileKind,
   deviceId: string,
   stamp: string,
   compress: boolean
 ): string {
-  return `${prefix}-救出-${deviceId.slice(0, 6)}-${stamp}.json${compress ? ".gz" : ""}`;
+  return `${prefix}-${kind}-${deviceId.slice(0, 6)}-${stamp}.json${compress ? ".gz" : ""}`;
+}
+
+/** 一覧に出す1件。日次コピーと違い日付ではなく種別と時刻で見分ける */
+export interface SideEntry {
+  /** 保存先内での識別子(DriveはファイルID) */
+  key: string;
+  name: string;
+  kind: SideFileKind;
+  /** YYYYMMDD-HHmm */
+  stamp: string;
+}
+
+/**
+ * 名前から種別と時刻を取り出す。規約外の名前なら null(＝触らない)。
+ * 一覧の抽出はこの関数だけを使うこと。書き出し側と食い違うと、
+ * 書けているのに一覧に出ない(＝読み戻せない)という #109 の穴が再発する。
+ */
+export function sideFileInfo(prefix: string, name: string): Omit<SideEntry, "key" | "name"> | null {
+  const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const m = new RegExp(`^${escaped}-(救出|引継前)-[0-9A-Za-z]{1,6}-(\\d{8}-\\d{4})\\.json(\\.gz)?$`).exec(
+    name
+  );
+  return m ? { kind: m[1] as SideFileKind, stamp: m[2] } : null;
 }

@@ -14,7 +14,13 @@ import type { Task } from "../types";
 import { serializeTasks } from "./storage";
 import { addToDate, nowHHMM, todayStr } from "./date";
 import { gzipSupported } from "./gzip";
-import type { BackupBody, BackupTarget, BackupTargetId, ConnectResult } from "./backupTargets/types";
+import type {
+  BackupBody,
+  BackupTarget,
+  BackupTargetId,
+  ConnectResult,
+  SideEntry,
+} from "./backupTargets/types";
 import { FsaBackupTarget } from "./backupTargets/fsa";
 import {
   batonAllowsWrite,
@@ -272,7 +278,7 @@ async function ensureStillOwner(tasks: Task[]): Promise<boolean> {
   // 奪われていた。手元の未送信ぶんを救い出してから読み取り専用へ落とす
   let rescued = "";
   try {
-    rescued = await drive.writeRescue(bodyOf(tasks), deviceId(), rescueStamp(new Date()));
+    rescued = await drive.writeSideFile(bodyOf(tasks), "救出", deviceId(), rescueStamp(new Date()));
   } catch (e) {
     console.error("救出ファイルの書き出しに失敗しました", e);
   }
@@ -695,6 +701,53 @@ export async function claimBaton(deviceName: string): Promise<void> {
   });
   cacheRole("owner", deviceName);
   setBatonState({ role: "owner", ownerName: deviceName, ownerBackupAt: "", ownerCount: null });
+}
+
+/**
+ * 手元のデータを保ったまま手番を取る(#109 §4.3)。
+ *
+ * 手順を守ること。**退避 → 手番 → 比較元の更新** の順で、途中を飛ばさない。
+ *   1. いまのミラーを「引継前」として退避する。これを書かずに手番を取ると、
+ *      次のバックアップで相手のバックアップ済みの編集が消え、戻す手段が無くなる。
+ *      日次コピーは同じ日なら同名で上書きされるため、当日の事故は日次では救えない
+ *   2. 手番ファイルを自分にする
+ *   3. サニティガードの比較元を手元の件数へ合わせる。ここを忘れると、直後の
+ *      バックアップが「急減」と判定されて止まり、引き継いだのに控えが取れなくなる
+ *
+ * 退避に失敗しても**操作は止めない**。止めると圏外や権限切れで永久に引き継げず、
+ * #84 の閉じ込めを繰り返す。失敗は戻り値で伝え、続けるかは呼び出し側(人)が決める。
+ */
+export async function claimBatonKeepingLocal(
+  deviceName: string,
+  localCount: number
+): Promise<void> {
+  await claimBaton(deviceName);
+  // 手元の件数を比較元にする。これ以降のガードは「手元からの増減」で判定される
+  lastBackedUpCount.set(current.id, localCount);
+}
+
+/**
+ * ミラーの中身を読む(見るだけ用。#109 §4.2)。手元には一切触れない。
+ * readEntry("mirror") と違い、事前に readMirror() を通していなくても使える。
+ */
+export async function readMirrorText(): Promise<{ text: string; modifiedTime: string }> {
+  const m = await drive().readMirror();
+  if (!m) throw new Error("読み込めるデータがありません");
+  return m;
+}
+
+/**
+ * 「手元のまま引き継ぐ」の前に、いまのミラーを退避する(#109 §4.3 手順1)。
+ * 成功したらファイル名、退避するものが無ければ空文字を返す。失敗は投げる。
+ */
+export async function snapshotMirrorBeforeHandover(): Promise<string> {
+  return await drive().snapshotMirror(deviceId(), rescueStamp(new Date()));
+}
+
+/** 退避・救出ファイルの一覧(#109 §4.4)。復元ダイアログで日次と分けて出す */
+export async function listSideFiles(): Promise<SideEntry[]> {
+  if (!batonAvailable()) return [];
+  return await drive().listSideFiles();
 }
 
 /** 手番を手放す。他端末は奪取できるので必須ではないが、明示的に譲れるようにする */

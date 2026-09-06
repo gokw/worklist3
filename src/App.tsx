@@ -57,12 +57,17 @@ import {
   refreshBaton,
   syncBatonDeviceName,
   type TakeoverPlan,
+  claimBatonKeepingLocal,
+  listSideFiles,
+  readMirrorText,
+  snapshotMirrorBeforeHandover,
 } from "./lib/backup";
 import {
   cacheRole,
   enableAction,
   ownerLabel,
   setBatonEnabled,
+  canPersist,
   getBatonState,
   subscribeBaton,
   setBatonState,
@@ -95,6 +100,7 @@ import InterruptDialog from "./components/InterruptDialog";
 import TimeInputDialog from "./components/TimeInputDialog";
 import MemoDialog from "./components/MemoDialog";
 import BatonBanner from "./components/BatonBanner";
+import ViewingBanner from "./components/ViewingBanner";
 import { loadGdriveConfig } from "./lib/backupTargets/gdrive";
 import RunningBanner from "./components/RunningBanner";
 import BulkEditDialog, { type BulkChanges } from "./components/BulkEditDialog";
@@ -191,7 +197,8 @@ export default function App() {
   );
 
   /** Drive の控え一覧を開いているか(§4.7) */
-  const [restoreOpen, setRestoreOpen] = useState(false);
+  /** Drive の控え一覧の用途。"import"=取り込む / "view"=見るだけ(#109 §4.2) */
+  const [restorePurpose, setRestorePurpose] = useState<"import" | "view" | null>(null);
 
   /** 「ここにいる」記録のダイアログを開いているか(Issue #86) */
   const [locationOpen, setLocationOpen] = useState(startupAction === "here");
@@ -209,6 +216,8 @@ export default function App() {
   const [importResult, setImportResult] = useState<ImportResult | null>(null);
   /** モード選択待ちのファイル(JSON読込ボタンでファイルを選んだ直後にセット) */
   const [importFile, setImportFile] = useState<File | null>(null);
+  /** その取り込みが退避・救出ファイルか。全リセットに一段確認を挟む(#109 §4.4) */
+  const [importIsSideFile, setImportIsSideFile] = useState(false);
   /** ショートカット一覧(?キー) */
   const [helpOpen, setHelpOpen] = useState(false);
   /** カレンダー登録の結果 */
@@ -232,6 +241,20 @@ export default function App() {
   // 端末の手番(#91)。窓ロック(#57)とは別の層で、こちらが優先して表示される
   const [baton, setBaton] = useState<BatonState>(() => getBatonState());
   const batonRef = useRef(baton);
+  /**
+   * 他端末のデータを「見るだけ」の状態(#109 §4.2)。null なら通常。
+   * **メモリだけに持つ。** localStorage にも Drive にも書かない。だからリロードで
+   * 自分のデータへ戻る。ここを永続化すると、閲覧のまま起動して混乱する。
+   */
+  const [viewing, setViewing] = useState<{
+    /** 何を見ているか(「最新の控え」「2026-09-05」など) */
+    label: string;
+    /** 見ている控えの件数 */
+    count: number;
+    /** この端末に保存されている件数(バナーで並べて見せる) */
+    localCount: number;
+  } | null>(null);
+  const viewingRef = useRef(viewing);
   const toastTimer = useRef<number | undefined>(undefined);
   /** 起動時1回だけ走る副作用から最新のタスクを見るための控え */
   const tasksRef = useRef(tasks);
@@ -273,19 +296,33 @@ export default function App() {
   } | null>(null);
   const dateShiftTimer = useRef<number | undefined>(undefined);
 
+  useEffect(() => {
+    viewingRef.current = viewing;
+  }, [viewing]);
+
   // 保存(タスクが変わるたびに localStorage へ)。
   // 同期フォルダへの控えはデバウンス付きの非同期なので、この主経路は止めない
   useEffect(() => {
     tasksRef.current = tasks;
-    // 読み取り専用の窓は localStorage にもバックアップにも一切書かない(#57 §4.3)。
-    // これが「古いスナップショットによる後勝ち上書き=巻き戻り」を止める最終防衛線。
-    if (!isPrimaryRef.current) return;
-    // 手番を持たない端末は localStorage にも書かない(#91 §4.3)。
-    // 書いてしまうと、あとで手番を取ったときに古い手元が系譜へ紛れ込む
-    if (batonRef.current.enabled && batonRef.current.role === "guest") return;
+    // 書いてよいかの判定は canPersist() 1か所に集約する(#109 §5)。
+    //   ・読み取り専用の窓は書かない(#57 §4.3。巻き戻り事故の最終防衛線)
+    //   ・手番を持たない端末は書かない(#91 §4.3)
+    //   ・閲覧中は書かない(#109 §3-2。見るだけの操作で手元を潰さない)
+    // viewing を依存に入れてあるのは、ref だと更新の順序に賭けることになるため。
+    // 閲覧へ入るときは必ず setViewing → setTasks の順で呼ぶこと(逆にすると、
+    // viewing がまだ null のまま保存が走り、他端末のデータで手元を潰す)。
+    if (
+      !canPersist({
+        viewing: viewing !== null,
+        isPrimary: isPrimaryRef.current,
+        enabled: batonRef.current.enabled,
+        role: batonRef.current.role,
+      })
+    )
+      return;
     repository.save(tasks);
     notifyTasksChanged(tasks);
-  }, [tasks]);
+  }, [tasks, viewing]);
 
   useEffect(() => {
     focusedIdRef.current = focusedId;
@@ -339,6 +376,10 @@ export default function App() {
 
   /** 読み取り専用の窓で編集操作を弾く。編集系ハンドラの先頭で呼ぶ(#57 §4.5)。 */
   const ensureWritable = useCallback(() => {
+    if (viewingRef.current) {
+      showToast("いまは Drive の内容を見ているだけです。上部の〔編集を有効にする〕から切り替えてください");
+      return false;
+    }
     if (batonRef.current.enabled && batonRef.current.role === "guest") {
       showToast("この端末は読み取り専用です。上部の〔読み込んで、この端末で更新する〕から切り替えてください");
       return false;
@@ -570,6 +611,59 @@ export default function App() {
     },
     [showToast]
   );
+
+  /**
+   * 見るだけ(#109 §4.2)。画面だけを差し替え、localStorage には一切書かない。
+   * **setViewing を先に呼ぶこと。** 逆にすると保存 useEffect が viewing=null の
+   * まま走り、他端末のデータで手元を潰す。
+   */
+  const startViewing = useCallback((text: string, label: string) => {
+    const parsed = JSON.parse(text) as Record<string, unknown>[];
+    const next = parsed.map(migrateTask);
+    const mine = repository.load();
+    setViewing({ label, count: next.length, localCount: mine.length });
+    setTasks(next);
+  }, []);
+
+  /** 閲覧をやめて、この端末に保存されているデータへ戻す */
+  const stopViewing = useCallback(() => {
+    setViewing(null);
+    setTasks(repository.load());
+  }, []);
+
+  /** バナーの〔見るだけ〕。ミラーを読んで閲覧に入る */
+  const viewMirror = useCallback(async () => {
+    const m = await readMirrorText();
+    startViewing(m.text, "最新の控え(ミラー)");
+  }, [startViewing]);
+
+  /**
+   * 手元のまま引き継ぐ(#109 §4.3)。閲覧中なら、見ていた内容ではなく
+   * **この端末に保存されているデータ**で引き継ぐ。
+   * 退避は呼び出し側(バナー)が先に済ませている。ここでは手番を取り、
+   * 比較元を手元に合わせ、明示操作としてすぐバックアップする(手順5)。
+   */
+  const doTakeoverKeep = useCallback(async () => {
+    const mine = repository.load();
+    setViewing(null);
+    setTasks(mine);
+    await claimBatonKeepingLocal(loadGdriveConfig().deviceName, mine.length);
+    await backupNow(mine);
+    showToast(`この端末の${mine.length}件で更新を引き継ぎました`);
+  }, [showToast]);
+
+  /**
+   * いま見ている内容を、この端末のデータにして引き継ぐ(#109 §4.2.1)。
+   * 退避はダイアログ側が先に済ませている。
+   */
+  const adoptViewed = useCallback(async () => {
+    const next = tasksRef.current;
+    setViewing(null);
+    repository.save(next);
+    await claimBatonKeepingLocal(loadGdriveConfig().deviceName, next.length);
+    await backupNow(next);
+    showToast(`${next.length}件で更新を引き継ぎました`);
+  }, [showToast]);
 
   // 起動直後の一瞬(ロック取得が確定するまで)は読み取り専用に見えるため、
   // すぐにバナーを出すと単独窓で点滅する。少し待って本当に secondary のときだけ出す。
@@ -1235,7 +1329,8 @@ export default function App() {
     // 連打・二重起動をここで弾く(ボタンのdisabledより前の最終防衛線。Issue #29)。
     // state更新は非同期なので、同期的に判定できる ref を真偽の基準にする。
     if (syncingCalendarRef.current) return;
-    // 読み取り専用の窓では gcalEventId の書き戻し(setTasks)が発生するため弾く(#57)
+    // 読み取り専用の窓では gcalEventId の書き戻し(setTasks)が発生するため弾く(#57)。
+    // 閲覧中(#109)もここで止まる — 見ている他端末のデータでカレンダーへ書くのを防ぐ
     if (!ensureWritable()) return;
 
     const { clientId, calendarId } = loadGcalConfig();
@@ -2047,13 +2142,22 @@ export default function App() {
         }))}
         onSwitchBackupTarget={(id) => void switchBackupTarget(id, tasks)}
         onSetBackupCompress={(on) => void setBackupCompress(on, tasks)}
-        onRestoreFromDrive={() => setRestoreOpen(true)}
+        onRestoreFromDrive={() => setRestorePurpose("import")}
+        onViewDrive={() => setRestorePurpose("view")}
         onRecordLocation={() => setLocationOpen(true)}
         geoSupported={geoSupported}
         onChooseBackupDir={() => void chooseBackupDir(tasks)}
         onReconnectBackupDir={() => void reconnectBackupDir(tasks)}
         onDisconnectBackupDir={() => void disconnectBackupDir()}
-        onBackupNow={() => void backupNow(tasks)}
+        onBackupNow={() => {
+          // 閲覧中は止める。押せると、見ている内容(古い日次など)でミラーを
+          // 上書きできてしまう(#109 §6-2)
+          if (viewing) {
+            showToast("いまは Drive の内容を見ているだけです。先に〔自分のデータに戻す〕を押してください");
+            return;
+          }
+          void backupNow(tasks);
+        }}
         onSnoozeBackup={snoozeBackupWarning}
         onClearBackupSnooze={clearBackupSnooze}
         totals={totals}
@@ -2077,7 +2181,23 @@ export default function App() {
 
       {/* 端末の手番なし(#91 §4.9)。窓ロック(#57)より優先して出す。
           #57 の〔この窓で編集〕を並べると、押しても編集可にならず新しい閉じ込めになる */}
-      {baton.enabled && baton.role === "guest" && (
+      {/* 閲覧中(#109 §4.2)。いま画面に出ているものが何なのかが最も重要な情報なので、
+          手番なしのバナーより優先して出す(§4.6) */}
+      {viewing && (
+        <ViewingBanner
+          label={viewing.label}
+          count={viewing.count}
+          localCount={viewing.localCount}
+          needsBaton={baton.enabled && baton.role === "guest"}
+          onExit={stopViewing}
+          onEditHere={stopViewing}
+          onSnapshot={snapshotMirrorBeforeHandover}
+          onAdoptViewed={adoptViewed}
+          onKeepLocal={doTakeoverKeep}
+        />
+      )}
+
+      {!viewing && baton.enabled && baton.role === "guest" && (
         <BatonBanner
           ownerName={baton.ownerName}
           ownerBackupAt={baton.ownerBackupAt}
@@ -2086,12 +2206,15 @@ export default function App() {
           checking={baton.checking}
           onPlan={() => planTakeover(tasks.length)}
           onTakeover={doTakeover}
+          onView={viewMirror}
+          onSnapshot={snapshotMirrorBeforeHandover}
+          onTakeoverKeep={doTakeoverKeep}
         />
       )}
 
       {/* 読み取り専用バナー(#57): 別窓で編集中のとき。ここで編集すると他窓の変更を
           消す事故になるため書き込みを止めている旨を示し、明示操作で書き手を引き継げる */}
-      {!isPrimary && roleSettled && !(baton.enabled && baton.role === "guest") && (
+      {!isPrimary && roleSettled && !viewing && !(baton.enabled && baton.role === "guest") && (
         <div className="flex flex-wrap items-center justify-center gap-3 border-b border-amber-200 bg-amber-100 px-4 py-1.5 text-sm text-amber-900">
           <span>
             👁 この窓は読み取り専用です(別のウィンドウで編集中)。巻き戻り事故を防ぐため書き込みを止めています。
@@ -2287,21 +2410,28 @@ export default function App() {
           onClose={() => setLocationOpen(false)}
         />
       )}
-      {restoreOpen && (
+      {restorePurpose && (
         <RestoreFromDriveDialog
+          purpose={restorePurpose}
           load={() => getGdriveTarget().listDaily()}
-          onClose={() => setRestoreOpen(false)}
-          onPick={(choice: RestoreChoice, label) => {
-            setRestoreOpen(false);
+          loadSideFiles={listSideFiles}
+          onClose={() => setRestorePurpose(null)}
+          onPick={(choice: RestoreChoice, label: string, isSideFile: boolean) => {
+            const purpose = restorePurpose;
+            setRestorePurpose(null);
             const target = choice.kind === "mirror" ? "mirror" : choice.entry;
-            // 取得した中身をファイルに見立てて、いつものインポート経路へ流す。
-            // 復元専用の書き換え経路は作らない(変更仕様書 §3-6/§4.7)。
             void getGdriveTarget()
               .readEntry(target)
               .then((text) => {
-                setImportFile(
-                  new File([text], `Drive: ${label}`, { type: "application/json" })
-                );
+                // 見るだけ(#109 §4.2)。手元には一切触れない
+                if (purpose === "view") {
+                  startViewing(text, label);
+                  return;
+                }
+                // 取得した中身をファイルに見立てて、いつものインポート経路へ流す。
+                // 復元専用の書き換え経路は作らない(変更仕様書 §3-6/§4.7)。
+                setImportFile(new File([text], `Drive: ${label}`, { type: "application/json" }));
+                setImportIsSideFile(isSideFile);
               })
               .catch((e) => {
                 console.error("控えの取得に失敗しました", e);
@@ -2314,6 +2444,7 @@ export default function App() {
         <ImportModeDialog
           fileName={importFile.name}
           currentCount={tasks.length}
+          sideFile={importIsSideFile}
           onSelect={(mode) => {
             const f = importFile;
             setImportFile(null);
