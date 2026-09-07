@@ -2,7 +2,7 @@
 // ツールバー: 日付移動・仕事/個人モード・表示切替・カテゴリ絞込・各種操作
 // ==============================================================
 import { useEffect, useRef, useState } from "react";
-import type { DoneFilter, ViewMode, WorkMode } from "../types";
+import type { DoneFilter, TaskScope, ViewMode, WorkMode } from "../types";
 import { DONE_FILTER_LABELS, VIEW_MODE_LABELS, WORK_MODE_LABELS } from "../types";
 import { formatDateJa, formatMin, todayStr } from "../lib/date";
 import type { BackupState } from "../lib/backup";
@@ -12,8 +12,11 @@ import { loadGdriveConfig, saveGdriveConfig } from "../lib/backupTargets/gdrive"
 import type { BackupTargetId } from "../lib/backupTargets/types";
 import { backupNeedsAttention } from "../lib/backup";
 
-/** ドロップダウン(その他)にまとめる期間 */
-const DROPDOWN_VIEWS: ViewMode[] = ["today", "everything", "custom"];
+/**
+ * ドロップダウン(その他)にまとめる期間。
+ * 「今日」は使う頻度が高いので #112 で表(単独ボタン)に出した。
+ */
+const DROPDOWN_VIEWS: ViewMode[] = ["custom", "everything"];
 
 /**
  * 開いているメニューを「外側クリック」と Esc で閉じる。返り値の ref を
@@ -184,13 +187,22 @@ const badgeCls =
   "absolute -right-1.5 -top-1.5 flex h-4 min-w-[16px] items-center justify-center rounded-full bg-blue-600 px-1 text-[10px] font-bold leading-none text-white";
 const toolDivider = "mx-1 h-6 w-px shrink-0 self-center bg-gray-200";
 
-/** モードボタンの色(仕事=青 / 個人=緑 / すべて=グレー) */
-const modeChip = (m: WorkMode, active: boolean) => {
-  if (!active)
-    return "rounded-full px-3 py-1 text-xs font-semibold bg-white text-gray-600 border border-gray-300 hover:bg-gray-100";
-  const color =
-    m === "work" ? "bg-blue-600" : m === "personal" ? "bg-emerald-600" : "bg-gray-700";
-  return `rounded-full px-3 py-1 text-xs font-semibold text-white ${color}`;
+/**
+ * 仕事/個人ボタンの見た目(#112)。「すべて」ボタンを廃し、2つのトグルで3状態を表す。
+ *   solid … その区分だけを表示中(仕事=青 / 個人=緑)
+ *   faint … 両方表示中(=すべて)。薄く点灯させ「何も出ない」と誤解されないようにする
+ *   off   … その区分は表示していない
+ */
+type ScopeChipState = "solid" | "faint" | "off";
+
+const scopeChip = (m: TaskScope, state: ScopeChipState) => {
+  const base = "rounded-full px-3 py-1 text-xs font-semibold border";
+  if (state === "off") return `${base} border-gray-300 bg-white text-gray-600 hover:bg-gray-100`;
+  if (state === "solid")
+    return `${base} border-transparent text-white ${m === "work" ? "bg-blue-600" : "bg-emerald-600"}`;
+  return m === "work"
+    ? `${base} border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100`
+    : `${base} border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100`;
 };
 
 export default function Toolbar(p: Props) {
@@ -851,14 +863,20 @@ export default function Toolbar(p: Props) {
 
       {/* 2段目: 仕事/個人モード・表示切替・絞込 */}
       <div className="mt-2 flex flex-wrap items-center gap-2">
-        {/* 仕事/個人モード切替(Mキーでも巡回)。タスク自身の仕事/個人でビューを絞る */}
+{/* 仕事/個人の切替(#112)。2つのトグルで 仕事のみ/個人のみ/両方 を表す。Mキーでも巡回 */}
         <div className="flex items-center gap-1">
-          {(["work", "personal", "all"] as WorkMode[]).map((m) => (
+          {(["work", "personal"] as TaskScope[]).map((m) => (
             <button
               key={m}
-              className={modeChip(m, p.mode === m)}
-              onClick={() => p.onModeChange(m)}
-              title="仕事/個人モードの切替(Mキーで巡回)"
+              aria-pressed={p.mode === m || p.mode === "all"}
+              className={scopeChip(m, p.mode === m ? "solid" : p.mode === "all" ? "faint" : "off")}
+              // 点いているものをもう一度押すと解除 = 両方表示(すべて)に戻る
+              onClick={() => p.onModeChange(p.mode === m ? "all" : m)}
+              title={
+                p.mode === m
+                  ? `${WORK_MODE_LABELS[m]}だけ表示中(もう一度押すと両方表示。Mキーでも巡回)`
+                  : `${WORK_MODE_LABELS[m]}だけに絞る(Mキーでも巡回)`
+              }
             >
               {WORK_MODE_LABELS[m]}
             </button>
@@ -881,8 +899,15 @@ export default function Toolbar(p: Props) {
           <>
         <span className="mx-1 text-gray-300">|</span>
 
-        {/* 期間: 単独[今日以降] + ドロップダウン[今日/全期間/カスタム] */}
+        {/* 期間: 単独[今日][今日以降] + ドロップダウン[カスタム/全期間] (#112) */}
         <div className="flex items-center gap-1">
+          <button
+            className={chip(p.viewMode === "today")}
+            onClick={() => p.onViewModeChange("today")}
+            title="選んだ日(既定は今日)のタスク＋繰越"
+          >
+            今日
+          </button>
           <button
             className={chip(p.viewMode === "todayOnward")}
             onClick={() => p.onViewModeChange("todayOnward")}
@@ -894,7 +919,7 @@ export default function Toolbar(p: Props) {
             <button
               className={chip(dropdownActive)}
               onClick={() => setViewMenuOpen((o) => !o)}
-              title="今日 / 全期間 / カスタム(範囲指定)"
+              title="カスタム(範囲指定) / 全期間"
             >
               {dropdownActive ? VIEW_MODE_LABELS[p.viewMode] : "その他"} ▾
             </button>
@@ -964,22 +989,15 @@ export default function Toolbar(p: Props) {
 
         <span className="mx-1 text-gray-300">|</span>
 
-        {/* 完了の扱い(すべて/完了のみ/完了を隠す)。
-            モード側にも「すべて」があるので、見出しを付けて取り違えを防ぐ */}
+        {/* 完了の扱い(すべて/完了のみ)。何に対する「すべて」か分かるよう見出しを付ける */}
         <div className="flex items-center gap-1">
           <span className="text-xs text-gray-500">完了:</span>
-          {(["all", "onlyDone", "hideDone"] as DoneFilter[]).map((d) => (
+          {(["all", "onlyDone"] as DoneFilter[]).map((d) => (
             <button
               key={d}
               className={chip(p.doneFilter === d)}
               onClick={() => p.onDoneFilterChange(d)}
-              title={
-                d === "all"
-                  ? "完了も未完了も表示"
-                  : d === "onlyDone"
-                    ? "完了したものだけ(振り返り用)"
-                    : "完了を隠して残りの作業に集中"
-              }
+              title={d === "all" ? "完了も未完了も表示" : "完了したものだけ(振り返り用)"}
             >
               {DONE_FILTER_LABELS[d]}
             </button>

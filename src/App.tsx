@@ -159,7 +159,7 @@ export default function App() {
   // 表示形式は「表ライト」固定。表形式/カード形式は一覧から外した(types.ts 参照)
   const [layout] = useState<LayoutMode>("tableLight");
   const [categoryFilter, setCategoryFilter] = useState(urlInit.category ?? "");
-  // 完了の扱い(すべて/完了のみ/完了を隠す)。標準は「すべて」。URLで上書き可
+  // 完了の扱い(すべて/完了のみ)。標準は「すべて」。URLで上書き可
   const [doneFilter, setDoneFilter] = useState<DoneFilter>(urlInit.done ?? "all");
   /** 予定のみ(開始予定時刻が入ったものだけ)。標準はオフ */
   const [plannedOnly, setPlannedOnly] = useState(urlInit.planned ?? false);
@@ -776,7 +776,6 @@ export default function App() {
     let list = tasks.filter((t) => matchesMode(t) && matchesPeriod(t));
     // 2. 完了の扱い
     if (doneFilter === "onlyDone") list = list.filter((t) => !!t.actEnd);
-    else if (doneFilter === "hideDone") list = list.filter((t) => !t.actEnd);
     // 3. 予定のみ(開始予定時刻が入っているものだけ)
     if (plannedOnly) list = list.filter((t) => !!t.planStart);
     // 4. カテゴリ
@@ -828,7 +827,6 @@ export default function App() {
     (t: Task) => {
       if (mode !== "all" && t.scope !== mode) setMode("all");
       if (!matchesPeriod(t)) setViewMode("everything"); // 期間から外れているなら全期間へ
-      if (doneFilter === "hideDone" && t.actEnd) setDoneFilter("all");
       if (doneFilter === "onlyDone" && !t.actEnd) setDoneFilter("all");
       if (plannedOnly && !t.planStart) setPlannedOnly(false);
       if (categoryFilter && t.category !== categoryFilter) setCategoryFilter("");

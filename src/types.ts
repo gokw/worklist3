@@ -113,14 +113,14 @@ export const VIEW_MODE_LABELS: Record<ViewMode, string> = {
  * 完了タスクの扱い(期間とは独立した軸)。
  *   all      … 完了も未完了も出す(既定)
  *   onlyDone … 完了したものだけ(振り返り・分析用。旧「完了」ビュー相当)
- *   hideDone … 完了を隠す(残りの作業に集中したいとき)
+ * 旧 hideDone(完了を隠す)は利用ケースが少ないため #112 で廃止した。
+ * 古いURL(done=hideDone / done=0)は urlParams.ts で all に読み替える。
  */
-export type DoneFilter = "all" | "onlyDone" | "hideDone";
+export type DoneFilter = "all" | "onlyDone";
 
 export const DONE_FILTER_LABELS: Record<DoneFilter, string> = {
   all: "すべて",
   onlyDone: "完了のみ",
-  hideDone: "完了を隠す",
 };
 
 /**
