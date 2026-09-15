@@ -2,13 +2,19 @@
 // タスクのライフサイクルロジック(延期など)
 // ==============================================================
 import { describe, it, expect } from "vitest";
+import type { RepeatConfig } from "../types";
 import {
   computeRepeatNextDate,
   copyTask,
   createTask,
+  createWaitCopy,
+  endTask,
+  generateNextOccurrence,
+  interruptTask,
   postponeTask,
   runningPlanEnd,
   runningRemainMin,
+  startTask,
 } from "./logic";
 
 describe("copyTask(繰り返しの引き継ぎ。#70)", () => {
@@ -225,5 +231,113 @@ describe("runningRemainMin(実行中タスクの残り分。#68)", () => {
 
   it("開始実績が無ければ undefined", () => {
     expect(runningRemainMin(createTask({ estimateMin: 30 }), 600)).toBeUndefined();
+  });
+});
+
+// ==============================================================
+// 期限(deadline)は勝手に変わらない — #115
+//
+//   期限は「相手と約束した締切」。こちらの都合で作業日を動かしても、
+//   タスクを打刻しても、期限は動かない。**期限を書き換えてよいのは、
+//   利用者が期限欄そのものを編集したときだけ**(手入力・一括編集)。
+//   #115 以前は延期と繰り返しの次回生成が期限を勝手にずらしていた。
+// ==============================================================
+describe("期限は勝手に変わらない(#115)", () => {
+  const withDeadline = (o: Partial<Parameters<typeof createTask>[0]> = {}) =>
+    createTask({ title: "見積書を出す", date: "2026-09-16", deadline: "2026-09-30", ...o });
+
+  describe("延期(postponeTask)", () => {
+    it("繰り返しなしを延期しても期限は動かない(日付だけ翌営業日へ)", () => {
+      const p = postponeTask(withDeadline());
+      expect(p.date).toBe("2026-09-17");
+      expect(p.deadline).toBe("2026-09-30");
+    });
+
+    it("連休をまたいで大きく動いても期限は動かない", () => {
+      // 2026-09-18(金)の次の営業日は連休明けの 09-24。以前は期限も +6日ずれていた
+      const p = postponeTask(withDeadline({ date: "2026-09-18" }));
+      expect(p.date).toBe("2026-09-24");
+      expect(p.deadline).toBe("2026-09-30");
+    });
+
+    it("繰り返しありを延期しても期限は動かない(以前は1か月ぶんずれていた)", () => {
+      const repeat: RepeatConfig = {
+        mode: "schedule",
+        unit: "month",
+        interval: 1,
+        copyPlanStart: false,
+      };
+      const p = postponeTask(withDeadline({ date: "2026-09-15", deadline: "2026-09-20", repeat }));
+      expect(p.date).toBe("2026-10-15");
+      expect(p.deadline).toBe("2026-09-20");
+    });
+
+    it("期限が無いタスクを延期しても期限は付かない", () => {
+      expect(postponeTask(createTask({ date: "2026-09-16" })).deadline).toBeUndefined();
+    });
+  });
+
+  describe("繰り返しの次回生成(generateNextOccurrence)", () => {
+    it("次回分に期限は引き継がない(元タスクの期限は前回分のもの)", () => {
+      const repeat: RepeatConfig = {
+        mode: "schedule",
+        unit: "month",
+        interval: 1,
+        copyPlanStart: false,
+      };
+      const next = generateNextOccurrence(withDeadline({ date: "2026-09-15", deadline: "2026-09-20", repeat }));
+      expect(next.date).toBe("2026-10-15");
+      expect(next.deadline).toBeUndefined();
+    });
+
+    it("曜日指定の週次でも期限は付かない(以前は実施日より前の期限が付いた)", () => {
+      const repeat: RepeatConfig = {
+        mode: "schedule",
+        unit: "week",
+        interval: 1,
+        weekdays: [1],
+        copyPlanStart: false,
+      };
+      const next = generateNextOccurrence(withDeadline({ date: "2026-09-15", deadline: "2026-09-16", repeat }));
+      expect(next.date).toBe("2026-09-28");
+      expect(next.deadline).toBeUndefined();
+    });
+
+    it("元タスクの期限は次回生成では書き換わらない", () => {
+      const repeat: RepeatConfig = {
+        mode: "schedule",
+        unit: "day",
+        interval: 1,
+        copyPlanStart: false,
+      };
+      const task = withDeadline({ repeat });
+      generateNextOccurrence(task);
+      expect(task.deadline).toBe("2026-09-30");
+    });
+  });
+
+  describe("打刻・複製でも期限は素通し", () => {
+    it("開始・終了・中断・複製・待ち複製は期限をそのまま保つ", () => {
+      const t = withDeadline();
+      expect(startTask(t, "09:00").deadline).toBe("2026-09-30");
+      expect(endTask(t, "10:00").updated.deadline).toBe("2026-09-30");
+      const r = interruptTask({ ...t, actStart: "09:00" });
+      expect(r.consumed.deadline).toBe("2026-09-30");
+      expect(r.remainder.deadline).toBe("2026-09-30");
+      expect(copyTask(t).deadline).toBe("2026-09-30");
+      expect(createWaitCopy({ ...t, actEnd: "10:00" }).deadline).toBe("2026-09-30");
+    });
+
+    it("繰り返しタスクの完了では、完了した側の期限も動かない", () => {
+      const repeat: RepeatConfig = {
+        mode: "schedule",
+        unit: "week",
+        interval: 1,
+        copyPlanStart: false,
+      };
+      const { updated, next } = endTask(withDeadline({ repeat }), "10:00");
+      expect(updated.deadline).toBe("2026-09-30");
+      expect(next?.deadline).toBeUndefined();
+    });
   });
 });
