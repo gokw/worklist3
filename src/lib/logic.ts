@@ -10,7 +10,6 @@ import {
   monthlyNominalDate,
   nextBusinessWeekday,
   nowHHMM,
-  parseDateStr,
   rollToBusinessDay,
   todayStr,
   yearlyNominalDate,
@@ -199,7 +198,15 @@ export function computeRepeatNextDate(repeat: RepeatConfig, baseDate: string): s
   return addToDate(baseDate, unit, interval);
 }
 
-/** 繰り返し設定から次回タスクを生成する */
+/**
+ * 繰り返し設定から次回タスクを生成する。
+ *
+ * **期限(deadline)は引き継がない(#115)。** 次回分は別のタスクであり、元タスクの
+ * 期限は前回分に対して決めた締切なので、そのまま持ち込むと生成直後から期限切れになる。
+ * 以前は元の期限を繰り返し間隔ぶんずらして付けていたが、日付の算出式
+ * (computeRepeatNextDate)と別式だったため、曜日指定・完了トリガー・月末では
+ * 期限が実施日より前になるなど破綻していた。次回分に締切があるときは手で入れる。
+ */
 export function generateNextOccurrence(task: Task): Task {
   const repeat = task.repeat as RepeatConfig;
   // 定期=元の日付基準 / 完了トリガー=完了日(今日)基準
@@ -220,10 +227,6 @@ export function generateNextOccurrence(task: Task): Task {
     repeat,
     memos: [...task.memos],
     links: [...task.links],
-    // 期限があれば同じ間隔だけずらす
-    deadline: task.deadline
-      ? addToDate(task.deadline, repeat.unit, repeat.interval)
-      : undefined,
   });
 }
 
@@ -233,6 +236,11 @@ export function generateNextOccurrence(task: Task): Task {
  *   - 繰り返しなし: 翌営業日へ(土日祝は飛ばす)。
  *   - 繰り返しあり: 次回の日程へ(曜日指定はその曜日/それ以外は N単位後)。
  *     ※ 繰り返し次回日の休日回避はフェーズ2で対応(#30)。ここでは現状の算出を踏襲。
+ *
+ * **期限(deadline)は動かさない(#115)。** 動かすのは「いつやるか」だけ。
+ * 期限は相手と約束した締切で、こちらの都合で作業日をずらしても変わらないため。
+ * 以前は移動日数分だけ期限も一緒にずらしていたが、これは #6 の依頼に無い挙動が
+ * 紛れ込んだまま「現状どおり」として引き継がれていたもので、#115 で廃止した。
  */
 export function postponeTask(task: Task): Task {
   const base = task.date ?? todayStr();
@@ -242,17 +250,12 @@ export function postponeTask(task: Task): Task {
   const nextDate = r
     ? computeRepeatNextDate(r, base)
     : rollToBusinessDay(addToDate(base, "day", 1), 1);
-  // 期限は移動した日数分だけ一緒にずらす
-  const shiftDays = Math.round(
-    (parseDateStr(nextDate).getTime() - parseDateStr(base).getTime()) / 86400000
-  );
   return {
     ...task,
     date: nextDate,
     actStart: undefined,
     actEnd: undefined,
     waiting: false,
-    deadline: task.deadline ? addToDate(task.deadline, "day", shiftDays) : undefined,
     updatedAt: new Date().toISOString(),
   };
 }
