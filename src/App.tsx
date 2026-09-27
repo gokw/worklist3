@@ -2,7 +2,7 @@
 // worklist3 アプリ本体
 //   状態管理・フィルタ・ショートカットキー・各ダイアログの制御
 // ==============================================================
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { DoneFilter, LayoutMode, Task, TaskScope, ViewMode, WorkMode } from "./types";
 import { WORK_MODE_LABELS } from "./types";
 import { addToDate, formatDateJa, formatMin, nowHHMM, todayStr } from "./lib/date";
@@ -202,6 +202,42 @@ export default function App() {
 
   /** 「ここにいる」記録のダイアログを開いているか(Issue #86) */
   const [locationOpen, setLocationOpen] = useState(startupAction === "here");
+
+  /**
+   * 起動直後の段取り(#120)。
+   *   "urgent" … 記録ダイアログを出すことだけに集中する段階。一覧の描画と、
+   *              Drive への接続・手番の確認(どちらもネットワーク往復)を止めておく。
+   *              「ここにいる」で起動したときだけこの段階を通る。
+   *   "full"   … 通常どおり全部動かす。
+   *
+   * 「ここにいる」は「いま！ここ！」を取りこぼさないことが価値なので、一覧も控えも
+   * 待たせてよい、という判断(#120)。実測では、タスク1000件のとき一覧の描画だけで
+   * 約2秒かかり、その間ダイアログが出てこなかった(スマートフォン相当・CPU4倍遅い)。
+   *
+   * **記録そのものは一覧にも Drive にも依存しない**(localStorage への追記)。
+   * ただし書き手ロック(#57)だけは別で、これが立つまで ensureWritable() が false を
+   * 返して記録が弾かれるため、後ろへ回してはいけない。
+   */
+  const [boot, setBoot] = useState<"urgent" | "full">(
+    startupAction === "here" ? "urgent" : "full"
+  );
+
+  /**
+   * 記録ダイアログを閉じてから、残り(一覧の描画と Drive)を動かす。
+   *
+   * **「描いてから1〜2フレーム後」では足りない。** 一覧の描画はメインスレッドを
+   * 1000件で約2秒塞ぐので、入力欄が画面に出ていても指が効かない(打った文字が
+   * 出てこない)。見えているのに打てない方が、出てこないより性質が悪い。
+   * ダイアログが開いている間は一覧を描かないでおく。
+   *
+   * 解除は startTransition に包む。React が一覧の描画を中断可能な仕事として扱うので、
+   * 描いている最中でも操作を先に処理できる(記録直後の固まりを避ける)。
+   */
+  useEffect(() => {
+    if (boot === "full" || locationOpen) return;
+    const id = requestAnimationFrame(() => startTransition(() => setBoot("full")));
+    return () => cancelAnimationFrame(id);
+  }, [boot, locationOpen]);
 
   // ダイアログ状態
   const [formTask, setFormTask] = useState<Task | null>(null);
@@ -477,7 +513,7 @@ export default function App() {
   useEffect(() => {
     setBackupNotifier(showToast);
     const unsubscribe = subscribeBackup(setBackupState);
-    void restoreBackupDir(tasksRef.current);
+    // 接続の開始は下の「段階が full になってから」へ移した(#120 D1)
     // 画面を離れるとき(タブ非表示・ページ離脱)に、溜まっている変更を書き切る。
     // スマホでは「アプリを離れて端末を置く」が典型的な離脱なので、
     // デバウンスを長くとるネットワーク保存先では、ここが実質の保存契機になる。
@@ -517,7 +553,8 @@ export default function App() {
       batonRef.current = s;
       setBaton(s);
     });
-    void refreshBaton();
+    // 最初の確認は下の「段階が full になってから」へ移した(#120 D1)。
+    // 立場はキャッシュから復元済みなので、確認が遅れても読み書きの判定は続く(§4.8)
     const onShow = () => {
       if (document.visibilityState === "visible") void refreshBaton();
     };
@@ -527,6 +564,19 @@ export default function App() {
       document.removeEventListener("visibilitychange", onShow);
     };
   }, []);
+
+  /**
+   * ネットワーク往復を伴う起動処理(#120 D1)。
+   * Drive への接続復元と手番の確認は、記録ダイアログを出し終えてから始める。
+   * 認証が切れていると GIS の読み込みとトークンの取り直しが走り、
+   * 「ここにいる」で起動したときの体感を押し下げるため。
+   * 通常の起動では boot が最初から "full" なので、従来どおり起動直後に走る。
+   */
+  useEffect(() => {
+    if (boot !== "full") return;
+    void restoreBackupDir(tasksRef.current);
+    void refreshBaton();
+  }, [boot]);
 
   // 降格して救出ファイルを書いたら、必ず知らせる。
   // トーストだと見逃してファイルの存在に気づけないのでダイアログにする(仕様書 §4.6)
@@ -2249,7 +2299,14 @@ export default function App() {
       <main
         className={`mx-auto flex w-full min-h-0 max-w-none flex-1 flex-col ${isMobile ? "p-2" : "p-4"}`}
       >
-        {isMobile ? (
+        {/*
+          一覧の描画は段階が full になってから(#120 C1)。
+          「ここにいる」で起動した直後は、記録ダイアログを出して打てるようにすることを
+          優先する。ここを描くのに1000件で約2秒かかり、その間ダイアログが出てこないうえ、
+          出た後もメインスレッドが塞がって入力を受け付けなかった。
+          ダイアログは画面を覆うので、その間ここが空でも見えない。
+        */}
+        {boot !== "full" ? null : isMobile ? (
           <TaskListMobile
             tasks={visibleTasks}
             onStart={actionHandlers.onStart}
