@@ -12,6 +12,7 @@ import {
   generateNextOccurrence,
   interruptTask,
   postponeTask,
+  toggleWaiting,
   runningPlanEnd,
   runningRemainMin,
   startTask,
@@ -69,7 +70,9 @@ describe("postponeTask(繰り返しなし。#37)", () => {
     expect(postponeTask(t).date).toBe("2026-02-25");
   });
 
-  it("延期すると実績・待ちはクリアされる", () => {
+  // 待ちのクリアはここで固定していたが、#122 で不具合と判断して外した。
+  // 待ちを保つことの確認は下の「延期で待ちフラグは解除されない(#122)」にある。
+  it("延期すると実績はクリアされる(待ちは保つ)", () => {
     const t = createTask({
       title: "A",
       date: "2026-02-24",
@@ -80,7 +83,7 @@ describe("postponeTask(繰り返しなし。#37)", () => {
     const moved = postponeTask(t);
     expect(moved.actStart).toBeUndefined();
     expect(moved.actEnd).toBeUndefined();
-    expect(moved.waiting).toBe(false);
+    expect(moved.waiting).toBe(true);
   });
 
   it("延期の結果は必ず元の日付より後(同日に戻らない)", () => {
@@ -339,5 +342,73 @@ describe("期限は勝手に変わらない(#115)", () => {
       expect(updated.deadline).toBe("2026-09-30");
       expect(next?.deadline).toBeUndefined();
     });
+  });
+});
+
+// ==============================================================
+// 延期は「いつやるか」だけを動かす — #122
+//
+//   待ちフラグは「相手の返事を待っている」という状態。作業日を明日へ
+//   ずらしても待っていることに変わりはないので、延期では解除しない。
+//   解除していた頃は、着手できないタスクが着手できるものとして一覧に並び、
+//   しかも画面のどこにも「待ちを外した」と出なかった(#122)。
+// ==============================================================
+describe("延期で待ちフラグは解除されない(#122)", () => {
+  it("繰り返しなしのタスクを延期しても待ちのまま", () => {
+    const t = createTask({ title: "返事待ち", date: "2026-10-05", waiting: true });
+    const p = postponeTask(t);
+    expect(p.date).toBe("2026-10-06");
+    expect(p.waiting).toBe(true);
+  });
+
+  it("連休をまたいで大きく動いても待ちのまま", () => {
+    // 2026-09-18(金)の次の営業日は連休明けの 09-24
+    const t = createTask({ title: "返事待ち", date: "2026-09-18", waiting: true });
+    const p = postponeTask(t);
+    expect(p.date).toBe("2026-09-24");
+    expect(p.waiting).toBe(true);
+  });
+
+  it("繰り返しありのタスクを延期しても待ちのまま", () => {
+    const repeat: RepeatConfig = {
+      mode: "schedule",
+      unit: "week",
+      interval: 1,
+      copyPlanStart: false,
+    };
+    const t = createTask({ title: "週次の確認待ち", date: "2026-10-05", waiting: true, repeat });
+    const p = postponeTask(t);
+    expect(p.date).toBe("2026-10-12");
+    expect(p.waiting).toBe(true);
+  });
+
+  it("待ちでないタスクは待ちのままにならない(勝手に立たない)", () => {
+    const t = createTask({ title: "ふつうのタスク", date: "2026-10-05", waiting: false });
+    expect(postponeTask(t).waiting).toBe(false);
+  });
+
+  it("元のタスクは書き換わらない(新しいオブジェクトを返す)", () => {
+    const t = createTask({ title: "返事待ち", date: "2026-10-05", waiting: true });
+    postponeTask(t);
+    expect(t.date).toBe("2026-10-05");
+    expect(t.waiting).toBe(true);
+  });
+
+  it("待ちを外すのは W キー(toggleWaiting)の仕事", () => {
+    const t = createTask({ title: "返事待ち", waiting: true });
+    expect(toggleWaiting(t).waiting).toBe(false);
+  });
+
+  it("延期しても期限は動かない(#115 と両立する)", () => {
+    const t = createTask({
+      title: "返事待ち",
+      date: "2026-10-05",
+      deadline: "2026-10-31",
+      waiting: true,
+    });
+    const p = postponeTask(t);
+    expect(p.date).toBe("2026-10-06");
+    expect(p.deadline).toBe("2026-10-31");
+    expect(p.waiting).toBe(true);
   });
 });
