@@ -746,7 +746,13 @@ export async function snapshotMirrorBeforeHandover(): Promise<string> {
 
 /** 退避・救出ファイルの一覧(#109 §4.4)。復元ダイアログで日次と分けて出す */
 export async function listSideFiles(): Promise<SideEntry[]> {
-  if (!batonAvailable()) return [];
+  // ここでも黙って空を返さない(#124 C)。Drive 以外の保存先では救出ファイルの
+  // 考え方自体が無いので、「無い」ではなく「この保存先では出せない」と伝える。
+  if (!batonAvailable()) {
+    throw new Error(
+      "退避・救出の一覧は Google ドライブへ接続しているときだけ出せます(💾メニューから接続してください)"
+    );
+  }
   return await drive().listSideFiles();
 }
 

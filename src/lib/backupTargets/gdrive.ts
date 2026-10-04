@@ -204,6 +204,32 @@ export class GdriveBackupTarget implements BackupTarget {
     return (await (await this.call(url, init)).json()) as T;
   }
 
+  /**
+   * 条件に合うファイルを**全件**取ってくる(#124 E)。
+   *
+   * Drive の一覧は1回で返る件数に上限があり、続きは nextPageToken を辿らないと取れない。
+   * 辿らないと、超えたぶんが**エラーも出さずに消える**。救出・引継前はローテーションの
+   * 掃除対象外で増え続けるので、放っておけばいつか必ず上限に当たる。そのとき出る症状は
+   * 「救出ファイルが一覧に出てこない」で、#124 の症状と見分けが付かない。
+   */
+  private async listAll(q: string): Promise<{ id: string; name: string }[]> {
+    const out: { id: string; name: string }[] = [];
+    let pageToken = "";
+    do {
+      const url =
+        `${API}?q=${encodeURIComponent(q)}` +
+        `&fields=nextPageToken,files(id,name)&pageSize=1000` +
+        (pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : "");
+      const r = await this.json<{
+        files?: { id: string; name: string }[];
+        nextPageToken?: string;
+      }>(url);
+      out.push(...(r.files ?? []));
+      pageToken = r.nextPageToken ?? "";
+    } while (pageToken);
+    return out;
+  }
+
   // ---- フォルダ・ファイルの解決 ----
 
   /** 名前でフォルダを探し、無ければ作る。drive.file なので自分が作ったものだけが見える */
@@ -339,14 +365,29 @@ export class GdriveBackupTarget implements BackupTarget {
   // ---- 読み書き ----
 
   /** 保管形式に合わせて中身を作る。圧縮するときは書く前に読み戻せることを確かめる */
+  /**
+   * 書き出す中身を Blob にする。
+   *
+   * **Blob に種別(type)を必ず持たせること(#124)。** putBlob は `blob.type` を見て
+   * Content-Type を決め、空なら application/octet-stream を送る。種別が付いていないと
+   * Drive 側で「種別の分からないファイル」になり、**Drive のアプリ上でグレーアウトして
+   * 選択もダウンロードもできなくなる**。救出ファイルがまさにこれで、手で取り出す経路が
+   * 塞がっていた(アプリ内の復元は先頭2バイトで判定するので影響を受けない)。
+   *
+   * 以前はここで type を返すだけで Blob には付けていなかったため、type を受け取って
+   * ヘッダへ入れていたミラーの更新だけが正しく、救出・引継前と、ミラーの新規作成
+   * (multipart。Blob の type がそのまま使われる)が落ちていた。
+   */
   private async encode(body: BackupBody): Promise<{ blob: Blob; type: string }> {
     if (!this.compress) {
-      return { blob: new Blob([body.toJson(true)]), type: "application/json" };
+      const type = "application/json";
+      return { blob: new Blob([body.toJson(true)], { type }), type };
     }
     const gz = await gzipText(body.toJson(false));
     const reason = await verifyGzipped(gz, body.count);
     if (reason) throw new Error(reason);
-    return { blob: new Blob([gz]), type: "application/gzip" };
+    const type = "application/gzip";
+    return { blob: new Blob([gz], { type }), type };
   }
 
   async readMirrorCount(): Promise<number | null> {
@@ -437,11 +478,9 @@ export class GdriveBackupTarget implements BackupTarget {
   async listDaily(): Promise<DailyEntry[]> {
     const { rotation } = await this.folders();
     const q = `'${rotation}' in parents and trashed=false`;
-    const r = await this.json<{ files?: { id: string; name: string }[] }>(
-      `${API}?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=100`
-    );
+    const files = await this.listAll(q);
     const out: DailyEntry[] = [];
-    for (const f of r.files ?? []) {
+    for (const f of files) {
       const date = dailyFileDate(this.prefix, f.name);
       if (date) out.push({ key: f.id, name: f.name, date });
     }
@@ -581,14 +620,17 @@ export class GdriveBackupTarget implements BackupTarget {
    * 日次コピーと違いフォルダ直下にあるので、こちらは root を見る。
    */
   async listSideFiles(): Promise<SideEntry[]> {
-    if (!this.connected) return [];
+    // 黙って空を返さない(#124 C)。空と「まだ接続できていない」は意味が違うのに、
+    // 画面では同じ「救出ファイルが無い」に見えてしまう。救出ファイルは他に復旧手段が
+    // 無いときの最後の網なので、取りに行けていない事実は必ず利用者へ出す。
+    if (!this.connected) {
+      throw new Error("Google ドライブへ接続できていません。接続を待つか、💾メニューから再接続してください");
+    }
     const { root } = await this.folders();
     const q = `'${root}' in parents and trashed=false`;
-    const r = await this.json<{ files?: { id: string; name: string }[] }>(
-      `${API}?q=${encodeURIComponent(q)}&fields=files(id,name)&pageSize=100`
-    );
+    const files = await this.listAll(q);
     const out: SideEntry[] = [];
-    for (const f of r.files ?? []) {
+    for (const f of files) {
       const info = sideFileInfo(this.prefix, f.name);
       if (info) out.push({ key: f.id, name: f.name, ...info });
     }

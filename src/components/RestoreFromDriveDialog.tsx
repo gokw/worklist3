@@ -32,8 +32,15 @@ interface Props {
 
 export default function RestoreFromDriveDialog(p: Props) {
   const [entries, setEntries] = useState<DailyEntry[] | null>(null);
-  const [sides, setSides] = useState<SideEntry[]>([]);
+  const [sides, setSides] = useState<SideEntry[] | null>(null);
   const [error, setError] = useState("");
+  /**
+   * 退避・救出の一覧が取れなかった理由(#124 B)。
+   * 以前はコンソールへ出すだけで、画面には何も出していなかった。そのため
+   * 「取りに行けていない」が「救出ファイルは無い」と同じ見え方になり、
+   * **データ回収の最後の網が黙って失敗する**状態だった。
+   */
+  const [sideError, setSideError] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -46,12 +53,19 @@ export default function RestoreFromDriveDialog(p: Props) {
       .catch((e) => {
         if (alive) setError(e instanceof Error ? e.message : "控えの一覧を取得できませんでした");
       });
-    // 退避・救出は補助情報。取れなくても日次の一覧は使えるようにする
+    // 取れなくても日次の一覧は使えるようにする(主目的を妨げない)。
+    // ただし失敗は必ず画面へ出す(#124 B)
     p.loadSideFiles()
       .then((list) => {
         if (alive) setSides([...list].sort((a, b) => (a.stamp < b.stamp ? 1 : -1)));
       })
-      .catch((e) => console.error("退避・救出の一覧を取得できませんでした", e));
+      .catch((e) => {
+        console.error("退避・救出の一覧を取得できませんでした", e);
+        if (alive) {
+          setSides([]);
+          setSideError(e instanceof Error ? e.message : "退避・救出の一覧を取得できませんでした");
+        }
+      });
     return () => {
       alive = false;
     };
@@ -122,12 +136,30 @@ export default function RestoreFromDriveDialog(p: Props) {
               </p>
             )}
 
-            {/* 退避・救出(#109 §4.4)。日次と混ぜない */}
-            {sides.length > 0 && (
+            {/*
+              退避・救出(#109 §4.4)。日次と混ぜない。
+              **節そのものは必ず出す(#124 B)。** 0件のときに何も描かないと、
+              「無い」のか「取りに行けていない」のかが画面から判別できない。
+            */}
+            <div className="px-3 pb-1 pt-3 text-[11px] font-semibold text-gray-400">
+              退避・救出{sides && sides.length > 0 ? `(${sides.length}件)` : ""}
+              {sides && sides.length > 0 ? " — 自動では消えません" : ""}
+            </div>
+            {!sides && !sideError && (
+              <p className="px-3 py-2 text-sm text-gray-500">読み込み中…</p>
+            )}
+            {sideError && (
+              <p className="px-3 py-2 text-sm text-amber-700">
+                ⚠ {sideError}
+              </p>
+            )}
+            {sides && sides.length === 0 && !sideError && (
+              <p className="px-3 py-2 text-sm text-gray-500">
+                退避・救出の控えはありません
+              </p>
+            )}
+            {sides && sides.length > 0 && (
               <>
-                <div className="px-3 pb-1 pt-3 text-[11px] font-semibold text-gray-400">
-                  退避・救出({sides.length}件) — 自動では消えません
-                </div>
                 <p className="px-3 pb-1 text-[11px] text-amber-700">
                   本流から外れた控えです。取り込むときは「追加で読み込む」を選んでください。
                 </p>
