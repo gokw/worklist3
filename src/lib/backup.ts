@@ -423,6 +423,19 @@ async function applyConnect(r: ConnectResult, tasks: Task[]): Promise<boolean> {
     console.error("古い世代の掃除に失敗しました", e);
   }
   notifyTasksChanged(tasks);
+  /**
+   * **接続できた直後に手番を確かめる(#125)。**
+   *
+   * refreshBaton() は batonAvailable()(= 接続済み)でなければ何もしない。
+   * 起動時の呼び出しは Drive への接続を待たずに走るため、**毎回そこで空振りしていた**。
+   * そして接続が成立したあとに確かめ直す経路が無かったので、**起動してすぐ操作を
+   * 始めると、他端末へ手番が移っていても気づけない**(バナーも出ず、編集も止まらない)。
+   * 気づくのは最初の編集から30秒後、バックアップ直前の確認まで遅れ、そのぶんが
+   * 救出ファイルへ回っていた。
+   *
+   * 待たない(void)。ここで待つと接続の完了が手番の往復ぶん遅れる。
+   */
+  void refreshBaton();
   return true;
 }
 

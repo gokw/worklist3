@@ -575,6 +575,10 @@ export default function App() {
   useEffect(() => {
     if (boot !== "full") return;
     void restoreBackupDir(tasksRef.current);
+    // ここの refreshBaton は、Drive が**まだ接続されていなければ何もしない**。
+    // 起動直後は必ずそうなるので、実際に効くのは接続が成立したあとに
+    // backup.ts の applyConnect から呼ばれる方(#125)。
+    // この呼び出しは、既に接続済みの状態でこの効果が走った場合のための保険。
     void refreshBaton();
   }, [boot]);
 
