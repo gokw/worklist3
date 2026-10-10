@@ -72,6 +72,15 @@ describe("buildDiary / diaryToText", () => {
     );
   });
 
+  it("同じ分の記録は作った順(画面の並びに依らない)", () => {
+    const first = location("📍 ホーム着", "2026-10-06", "08:43");
+    const second = location("📍 列に並ぶ", "2026-10-06", "08:43");
+    first.createdAt = "2026-10-05T23:43:05.120Z";
+    second.createdAt = "2026-10-05T23:43:41.900Z";
+    const text = diaryToText(buildDiary([second, first]));
+    expect(text.indexOf("ホーム着")).toBeLessThan(text.indexOf("列に並ぶ"));
+  });
+
   it("実行中(未終了)と0分は時間を付けない", () => {
     const days = buildDiary([
       createTask({ title: "実行中", date: "2026-10-10", actStart: "09:00" }),

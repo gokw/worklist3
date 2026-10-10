@@ -8,7 +8,7 @@
 //
 //   ・出すのは開始実績のあるものだけ(日記は「やったこと」なので)
 //   ・日付ごとに見出しを立て、日の間は空行。1日でも複数日でも同じ処理
-//   ・各日の中は開始時刻順(画面の並びには依存しない)
+//   ・各日の中は開始時刻順、同じ分なら作った順(画面の並びには依存しない)
 //   ・ここにいる記録(#86)は 📍 をマップへのリンクにする
 //
 //   クリップボードには2形式で入れる。
@@ -81,8 +81,14 @@ export function buildDiary(tasks: Task[]): DiaryDay[] {
     date,
     lines: byDate
       .get(date)!
-      // 同じ開始時刻なら元の並び(安定)
-      .sort((a, b) => a.t.actStart!.localeCompare(b.t.actStart!) || a.i - b.i)
+      // 開始実績は分までなので、同じ分の記録は作った時刻(ミリ秒まである)で並べる。
+      // ここにいる記録を続けて付けたとき、記録した順に出るように。それも同じなら元の並び
+      .sort(
+        (a, b) =>
+          a.t.actStart!.localeCompare(b.t.actStart!) ||
+          a.t.createdAt.localeCompare(b.t.createdAt) ||
+          a.i - b.i
+      )
       .map(({ t }) => {
         const loc = locationOf(t);
         const min = actMin(t);
