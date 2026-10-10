@@ -25,6 +25,7 @@ import {
   toggleWaiting,
 } from "./lib/logic";
 import { parseClipboardText } from "./lib/clipboard";
+import { buildDiary, diaryLineCount, diaryToHtml, diaryToText } from "./lib/diary";
 import { sortTasks } from "./lib/sort";
 import { exportTasksAsJson, migrateTask, repository, tasksToCsv } from "./lib/storage";
 import { decodeBackupBytes, gzipSupported } from "./lib/gzip";
@@ -1343,6 +1344,37 @@ export default function App() {
   }, [visibleTasks, showToast]);
 
   /**
+   * 表示中を日記用の文章にしてコピーする(#128)。
+   * UpNote などリッチテキストのエディタで 📍 がリンクになるよう、HTML と
+   * プレーンテキスト(Markdown)の両方を入れる。ClipboardItem が無い環境は
+   * プレーンテキストだけにする。
+   */
+  const diaryDays = useMemo(() => buildDiary(visibleTasks), [visibleTasks]);
+  const handleCopyDiary = useCallback(async () => {
+    const count = diaryLineCount(diaryDays);
+    if (count === 0) {
+      showToast("日記に出せるタスクがありません(開始したものだけが対象です)");
+      return;
+    }
+    const text = diaryToText(diaryDays);
+    try {
+      if (typeof ClipboardItem !== "undefined" && navigator.clipboard.write) {
+        await navigator.clipboard.write([
+          new ClipboardItem({
+            "text/plain": new Blob([text], { type: "text/plain" }),
+            "text/html": new Blob([diaryToHtml(diaryDays)], { type: "text/html" }),
+          }),
+        ]);
+      } else {
+        await navigator.clipboard.writeText(text);
+      }
+      showToast(`日記用にコピーしました(${count}件)`);
+    } catch {
+      showToast("クリップボードにコピーできませんでした");
+    }
+  }, [diaryDays, showToast]);
+
+  /**
    * ローカルパス(フォルダ/ファイル)をクリップボードへコピーする(#45)。
    * ブラウザは https 由来の file:// を開けないため、コピー→エクスプローラのアドレス欄へ
    * 貼り付けてもらう運用にする(安全側)。
@@ -2184,6 +2216,8 @@ export default function App() {
           });
         }}
         onCopyCsv={handleCopyCsv}
+        onCopyDiary={handleCopyDiary}
+        diaryCount={diaryLineCount(diaryDays)}
         visibleCount={visibleTasks.length}
         onImportFile={handleImportFile}
         backup={backupState}

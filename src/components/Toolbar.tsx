@@ -125,6 +125,10 @@ interface Props {
   onToggleExportGzip: () => void;
   /** 一覧に出ているタスクをCSVにしてクリップボードへ */
   onCopyCsv: () => void;
+  /** 表示中を日記用の文章でコピー(#128) */
+  onCopyDiary: () => void;
+  /** 日記に出る件数(表示中のうち開始したもの) */
+  diaryCount: number;
   /** 一覧に出ている件数(CSVコピーが何件対象かを示す) */
   visibleCount: number;
   /** JSONファイルからの一括インポート(Issue #12) */
@@ -507,6 +511,18 @@ export default function Toolbar(p: Props) {
                   title="今の絞り込みで表示しているタスクをCSVにしてクリップボードへ"
                 >
                   📋 表示中をCSVでコピー ({p.visibleCount}件)
+                </button>
+                {/* 日記用のまとめ(#128)。開始したものを日付ごと・時刻順に並べる。
+                    開始していないものは出さないので、件数は CSV と違うことがある */}
+                <button
+                  className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-gray-100"
+                  onClick={() => {
+                    p.onCopyDiary();
+                    setDataMenuOpen(false);
+                  }}
+                  title="今の絞り込みで表示しているうち、開始したものを日記用の文章にしてクリップボードへ"
+                >
+                  📔 表示中を日記用にコピー ({p.diaryCount}件)
                 </button>
                 <p className="px-3 pb-2 text-xs text-gray-500">
                   完了だけ欲しいときは 完了:「完了のみ」、期間は「カスタム」で指定できます
