@@ -12,6 +12,7 @@ import {
   generateNextOccurrence,
   interruptTask,
   postponeTask,
+  randomStartCandidates,
   toggleWaiting,
   runningPlanEnd,
   runningRemainMin,
@@ -410,5 +411,55 @@ describe("延期で待ちフラグは解除されない(#122)", () => {
     expect(p.date).toBe("2026-10-06");
     expect(p.deadline).toBe("2026-10-31");
     expect(p.waiting).toBe(true);
+  });
+});
+
+describe("randomStartCandidates(ランダム開始の候補。選択があれば選択から。#131)", () => {
+  const day = "2026-10-13";
+  const a = createTask({ title: "A", date: day });
+  const b = createTask({ title: "B(開始予定あり)", date: day, planStart: "0930" });
+  const c = createTask({ title: "C(日付なし)", date: undefined });
+  const d = createTask({ title: "D(待ち)", date: day, waiting: true });
+  const e = createTask({ title: "E(別の日)", date: "2026-10-14" });
+  const f = createTask({ title: "F(実行中)", date: day, actStart: "0900" });
+  const g = createTask({ title: "G(完了)", date: day, actStart: "0900", actEnd: "0930" });
+  const h = createTask({ title: "H(個人)", date: day, scope: "personal" });
+  const all = [a, b, c, d, e, f, g, h];
+  const titles = (r: { candidates: { title: string }[] }) => r.candidates.map((t) => t.title);
+
+  it("選択なしなら全タスクから4条件で絞る(従来どおり)", () => {
+    const r = randomStartCandidates(all, { date: day, mode: "all", selectedIds: [] });
+    expect(r.fromSelection).toBe(false);
+    expect(titles(r)).toEqual(["A", "C(日付なし)", "H(個人)"]);
+  });
+
+  it("モードが合わないものは除く", () => {
+    const r = randomStartCandidates(all, { date: day, mode: "work", selectedIds: [] });
+    expect(titles(r)).toEqual(["A", "C(日付なし)"]);
+  });
+
+  it("選択があれば選択したタスクだけから4条件で絞る", () => {
+    const r = randomStartCandidates(all, {
+      date: day,
+      mode: "all",
+      selectedIds: [a.id, b.id, c.id, d.id],
+    });
+    expect(r.fromSelection).toBe(true);
+    expect(titles(r)).toEqual(["A", "C(日付なし)"]);
+  });
+
+  it("選択はあるが該当0件なら、選択外へ広げず空を返す", () => {
+    const r = randomStartCandidates(all, {
+      date: day,
+      mode: "all",
+      selectedIds: [b.id, d.id, e.id, f.id, g.id],
+    });
+    expect(r.fromSelection).toBe(true);
+    expect(r.candidates).toEqual([]);
+  });
+
+  it("存在しないIDが選択に残っていても無視する", () => {
+    const r = randomStartCandidates(all, { date: day, mode: "all", selectedIds: ["gone", a.id] });
+    expect(titles(r)).toEqual(["A"]);
   });
 });

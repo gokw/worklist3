@@ -18,6 +18,7 @@ import {
   lastEndTimeOfDay,
   planEnd,
   postponeTask,
+  randomStartCandidates,
   remainMin,
   suggestCategoryByTitle,
   setSequentialStart,
@@ -1467,22 +1468,25 @@ export default function App() {
     showToast("カレンダー連携をリセットしました(トークンを破棄)");
   }, [showToast]);
 
-  // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスク・モード対象外は除く
+  // ランダム開始(Excel版 StartRandomTodayTask 踏襲)。待ちタスク・モード対象外は除く。
+  //   選択があれば選択したタスクから選ぶ(#131)。開始後も選択は残す
   const handleRandomStart = useCallback(() => {
-    const candidates = tasks.filter(
-      (t) =>
-        (!t.date || t.date === selectedDate) &&
-        !t.planStart &&
-        derivedStatus(t) === "notStarted" &&
-        matchesMode(t)
-    );
+    const { candidates, fromSelection } = randomStartCandidates(tasks, {
+      date: selectedDate,
+      mode,
+      selectedIds,
+    });
     if (candidates.length === 0) {
-      showToast("該当するタスクが見つかりませんでした");
+      showToast(
+        fromSelection
+          ? "選択中のタスクに開始できるものがありません"
+          : "該当するタスクが見つかりませんでした"
+      );
       return;
     }
     const picked = candidates[Math.floor(Math.random() * candidates.length)];
     handleStart(picked);
-  }, [tasks, selectedDate, handleStart, showToast, matchesMode]);
+  }, [tasks, selectedDate, mode, selectedIds, handleStart, showToast]);
 
   // モードを 仕事→個人→すべて の順に巡回(Mキー)
   const cycleMode = useCallback(() => {

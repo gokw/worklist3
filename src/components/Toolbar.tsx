@@ -375,7 +375,7 @@ export default function Toolbar(p: Props) {
             className={`${iconBtn} text-gray-700`}
             disabled={p.readOnly}
             onClick={p.onRandomStart}
-            title="今日のタスクからランダムに1件開始"
+            title="今日のタスク(選択中なら選択から)からランダムに1件開始"
             aria-label="ランダムに1件開始"
           >
             🎲
