@@ -2,7 +2,7 @@
 // タスクのライフサイクルロジック
 // Excel版 modTask(開始・終了・中断)/ 繰り返し生成のロジックを踏襲
 // ==============================================================
-import type { DerivedStatus, RepeatConfig, Task } from "../types";
+import type { DerivedStatus, RepeatConfig, Task, WorkMode } from "../types";
 import {
   addToDate,
   hhmmToMin,
@@ -69,6 +69,29 @@ export function derivedStatus(task: Task): DerivedStatus {
   if (task.actStart) return "running";
   if (task.waiting) return "waiting";
   return "notStarted";
+}
+
+/**
+ * ランダム開始(🎲)の候補(Excel版 StartRandomTodayTask 踏襲)。
+ *   選択があれば選択したタスクだけ、無ければ全タスクを元にする(#131)。
+ *   そこから「日付なし or 表示中の日付」「開始予定なし」「未開始(待ちは除く)」「モード一致」で絞る。
+ *   選択があって該当0件でも全体へは広げない(選んだ範囲の外から始めないため)。
+ */
+export function randomStartCandidates(
+  tasks: Task[],
+  opts: { date: string; mode: WorkMode; selectedIds: readonly string[] }
+): { candidates: Task[]; fromSelection: boolean } {
+  const fromSelection = opts.selectedIds.length > 0;
+  const sel = new Set(opts.selectedIds);
+  const pool = fromSelection ? tasks.filter((t) => sel.has(t.id)) : tasks;
+  const candidates = pool.filter(
+    (t) =>
+      (!t.date || t.date === opts.date) &&
+      !t.planStart &&
+      derivedStatus(t) === "notStarted" &&
+      (opts.mode === "all" || t.scope === opts.mode)
+  );
+  return { candidates, fromSelection };
 }
 
 // ---------- 計算列(Excel版 G/J/O 列の数式を踏襲) ----------
