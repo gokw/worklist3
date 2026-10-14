@@ -10,6 +10,7 @@ import { ownerLabel, type BatonState } from "../lib/baton";
 import { loadGcalConfig, saveGcalConfig } from "../lib/gcalClient";
 import { loadGdriveConfig, saveGdriveConfig } from "../lib/backupTargets/gdrive";
 import type { BackupTargetId } from "../lib/backupTargets/types";
+import CategoryFilter from "./CategoryFilter";
 import { backupNeedsAttention } from "../lib/backup";
 
 /**
@@ -1069,18 +1070,11 @@ export default function Toolbar(p: Props) {
           </datalist>
         </div>
 
-        <select
-          className="rounded border border-gray-300 px-2 py-1 text-xs"
+        <CategoryFilter
+          categories={p.categories}
           value={p.categoryFilter}
-          onChange={(e) => p.onCategoryFilterChange(e.target.value)}
-        >
-          <option value="">全カテゴリ</option>
-          {p.categories.map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </select>
+          onChange={p.onCategoryFilterChange}
+        />
 
         {/* 1段目に入らない合計は、モバイルではここへ */}
         {p.compact && (

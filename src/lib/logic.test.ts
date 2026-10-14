@@ -11,6 +11,7 @@ import {
   endTask,
   generateNextOccurrence,
   interruptTask,
+  matchCategories,
   postponeTask,
   randomStartCandidates,
   toggleWaiting,
@@ -461,5 +462,30 @@ describe("randomStartCandidates(ランダム開始の候補。選択があれば
   it("存在しないIDが選択に残っていても無視する", () => {
     const r = randomStartCandidates(all, { date: day, mode: "all", selectedIds: ["gone", a.id] });
     expect(titles(r)).toEqual(["A"]);
+  });
+});
+
+describe("matchCategories(カテゴリ絞り込みの候補 #133)", () => {
+  const cats = ["定常運用", "運用業務", "稟議チェック", "Admin", "badminton"];
+
+  it("空や空白だけなら全件をそのまま返す", () => {
+    expect(matchCategories(cats, "")).toEqual(cats);
+    expect(matchCategories(cats, "  ")).toEqual(cats);
+  });
+
+  it("途中一致で拾い、頭から一致するものを先に並べる", () => {
+    expect(matchCategories(cats, "運用")).toEqual(["運用業務", "定常運用"]);
+  });
+
+  it("英字の大文字小文字は区別しない", () => {
+    expect(matchCategories(cats, "ADMIN")).toEqual(["Admin", "badminton"]);
+  });
+
+  it("前後の空白は無視する", () => {
+    expect(matchCategories(cats, " 稟議 ")).toEqual(["稟議チェック"]);
+  });
+
+  it("一致が無ければ空", () => {
+    expect(matchCategories(cats, "存在しない")).toEqual([]);
   });
 });

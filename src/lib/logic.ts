@@ -39,6 +39,24 @@ export function collectCategories(tasks: Task[]): string[] {
   );
 }
 
+/**
+ * カテゴリ絞り込みの候補(Issue #133)。
+ * 途中一致・英字の大文字小文字は区別しない。頭から一致するものを先に、
+ * その中では元の並び(文字順)を保つ。空(空白のみ)なら全件。
+ */
+export function matchCategories(categories: string[], query: string): string[] {
+  const q = query.trim().toLowerCase();
+  if (q === "") return categories;
+  const head: string[] = [];
+  const rest: string[] = [];
+  for (const c of categories) {
+    const i = c.toLowerCase().indexOf(q);
+    if (i === 0) head.push(c);
+    else if (i > 0) rest.push(c);
+  }
+  return [...head, ...rest];
+}
+
 export function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
