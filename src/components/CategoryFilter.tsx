@@ -3,22 +3,25 @@
 //   - 打つと「途中一致」で候補が絞れる。候補から選んだ時点で絞り込みに反映
 //   - 打ちかけの文字では絞り込まない(入力中に一覧がちらつかないように)
 //   - 空 = 全カテゴリ。選択中は × で全カテゴリへ戻す
+//   - 未設定のタスクがあれば、候補の先頭に「(未設定)」を出す(Issue #137)
 //   - ↑↓で候補移動 / Enterで確定(未選択なら先頭候補、空なら全カテゴリ) / Escで取り消し
 //   ドロップダウンは position:fixed で表示し、ツールバーの枠で切れないようにする。
 // ==============================================================
 import { useEffect, useRef, useState } from "react";
 import type { KeyboardEvent as RKE } from "react";
-import { matchCategories } from "../lib/logic";
+import { NO_CATEGORY, categoryFilterLabel, categoryFilterOptions } from "../lib/logic";
 
 interface Props {
   /** 使用中カテゴリ(文字順) */
   categories: string[];
-  /** 絞り込み中のカテゴリ。"" は全カテゴリ */
+  /** 絞り込み中のカテゴリ。"" は全カテゴリ、NO_CATEGORY は未設定のものだけ */
   value: string;
+  /** カテゴリ未設定のタスクがあるか */
+  hasUncategorized: boolean;
   onChange: (c: string) => void;
 }
 
-export default function CategoryFilter({ categories, value, onChange }: Props) {
+export default function CategoryFilter({ categories, value, hasUncategorized, onChange }: Props) {
   // 入力中の文字。null は「入力していない」(欄には value を出す)
   const [draft, setDraft] = useState<string | null>(null);
   const [highlight, setHighlight] = useState(-1);
@@ -27,8 +30,11 @@ export default function CategoryFilter({ categories, value, onChange }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
 
   const editing = draft !== null;
+  const label = categoryFilterLabel(value);
+  // 未設定で絞り込み中なら、未設定のタスクが無くなっても候補に残す(選び直せるように)
+  const showNone = hasUncategorized || value === NO_CATEGORY;
   // 開いた直後(選択中の名前のまま)は全件を見せる。打ち始めたら絞る
-  const matches = editing && draft !== value ? matchCategories(categories, draft) : categories;
+  const matches = categoryFilterOptions(categories, showNone, editing && draft !== label ? draft : "");
 
   // ↑↓で動かした候補が見えるようにスクロールを追従させる(先頭の「全カテゴリ」の分 +1)
   useEffect(() => {
@@ -39,7 +45,7 @@ export default function CategoryFilter({ categories, value, onChange }: Props) {
   const begin = () => {
     const r = inputRef.current?.getBoundingClientRect();
     if (r) setPos({ left: r.left, top: r.bottom, width: r.width });
-    setDraft(value);
+    setDraft(label);
     setHighlight(-1);
   };
 
@@ -66,7 +72,7 @@ export default function CategoryFilter({ categories, value, onChange }: Props) {
       e.preventDefault();
       if (highlight >= 0 && highlight < matches.length) choose(matches[highlight]);
       else if (draft.trim() === "") choose("");
-      else if (draft === value) choose(value);
+      else if (draft === label) choose(value);
       else if (matches.length > 0) choose(matches[0]);
       // 一致なしの Enter は何もしない(打ち直せるよう欄は残す)
     } else if (e.key === "Escape") {
@@ -84,7 +90,7 @@ export default function CategoryFilter({ categories, value, onChange }: Props) {
           value ? "border-blue-400 bg-blue-50" : "border-gray-300"
         }`}
         placeholder="全カテゴリ"
-        value={editing ? draft : value}
+        value={editing ? draft : label}
         onFocus={(e) => {
           begin();
           e.target.select();
@@ -96,7 +102,7 @@ export default function CategoryFilter({ categories, value, onChange }: Props) {
         onKeyDown={handleKey}
         // 候補のクリックは onMouseDown で先に処理するので、blur では取り消すだけ
         onBlur={finish}
-        title={"打つと途中一致で候補が絞れます\n候補から選ぶと絞り込み・× で全カテゴリへ"}
+        title={"打つと途中一致で候補が絞れます\n候補から選ぶと絞り込み・× で全カテゴリへ\n(未設定) でカテゴリの無いものだけ"}
       />
       {value && !editing && (
         <button
@@ -133,14 +139,14 @@ export default function CategoryFilter({ categories, value, onChange }: Props) {
               type="button"
               className={`block w-full px-2 py-1 text-left text-xs ${
                 i === highlight ? "bg-blue-100" : "hover:bg-gray-100"
-              } ${c === value ? "font-semibold" : ""}`}
+              } ${c === value ? "font-semibold" : ""} ${c === NO_CATEGORY ? "text-gray-500" : ""}`}
               // onMouseDown: input の blur より先に確定させる
               onMouseDown={(e) => {
                 e.preventDefault();
                 choose(c);
               }}
             >
-              {c}
+              {categoryFilterLabel(c)}
             </button>
           ))}
           {matches.length === 0 && (

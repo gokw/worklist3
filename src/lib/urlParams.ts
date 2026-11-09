@@ -5,7 +5,7 @@
 //   &from=YYYY-MM-DD &to=YYYY-MM-DD             (view=custom の範囲。片側省略可)
 //   &done=all|onlyDone                          (完了の扱い)
 //   &planned=1|0                                (予定のみ=開始予定時刻ありに絞る)
-//   &category=...                               (カテゴリ絞り込み)
+//   &category=...                               (カテゴリ絞り込み。値が空 `category=` は未設定のものだけ。#137)
 //   &q=...                                      (タスク名フィルタ。/パターン/ で正規表現)
 //   &ui=mobile|desktop|auto                     (表示の強制。既定は画面幅で自動)
 //   &action=here                                (開いた直後に「ここにいる」記録を開く。#105)
@@ -26,6 +26,7 @@
 // ==============================================================
 import type { DoneFilter, ViewMode, WorkMode } from "../types";
 import type { UiOverride } from "./useIsMobile";
+import { NO_CATEGORY } from "./logic";
 
 const VIEWS: ViewMode[] = ["todayOnward", "today", "everything", "custom"];
 const DONE_FILTERS: DoneFilter[] = ["all", "onlyDone"];
@@ -86,8 +87,10 @@ export function readUrlSettings(): UrlSettings {
   if (planned === "1" || planned === "true") s.planned = true;
   else if (planned === "0" || planned === "false") s.planned = false;
 
+  // 値の無い `category=` は「カテゴリ未設定」(#137)。実在のカテゴリ名とはぶつからない
   const category = p.get("category");
   if (category) s.category = category;
+  else if (category === "") s.category = NO_CATEGORY;
 
   const q = p.get("q");
   if (q) s.q = q;
@@ -122,7 +125,8 @@ export function writeUrlSettings(s: {
   }
   p.set("done", s.done);
   if (s.planned) p.set("planned", "1");
-  if (s.category) p.set("category", s.category);
+  if (s.category === NO_CATEGORY) p.set("category", "");
+  else if (s.category) p.set("category", s.category);
   if (s.q) p.set("q", s.q);
   // 自動のときは書かない。書いてしまうと、スマートフォンで開いたURLをそのまま
   // PCで開いたときにモバイル表示が強制されてしまう(既定値を書かない方針とも一致)

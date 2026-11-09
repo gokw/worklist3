@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { parseStartupAction, readUrlSettings } from "./urlParams";
+import { NO_CATEGORY } from "./logic";
+import { parseStartupAction, readUrlSettings, writeUrlSettings } from "./urlParams";
 
 // 起動時の操作(#105)。ブックマークから直接「ここにいる」記録を開くための入口。
 describe("parseStartupAction", () => {
@@ -62,5 +63,47 @@ describe("action と表示指定の併用(#117)", () => {
     withUrl("?action=here&view=tomorrow");
     expect(parseStartupAction("?action=here&view=tomorrow")).toBe("here");
     expect(readUrlSettings().view).toBeUndefined();
+  });
+});
+
+// カテゴリ未設定の絞り込み(#137)。値の無い category= で表す
+describe("category=(未設定)の読み書き", () => {
+  const base = {
+    mode: "all" as const,
+    view: "today" as const,
+    done: "all" as const,
+    planned: false,
+    q: "",
+    from: "",
+    to: "",
+    ui: undefined,
+  };
+
+  function written(category: string): URLSearchParams {
+    let url = "";
+    (globalThis as unknown as { window: unknown }).window = {
+      location: { search: "", pathname: "/" },
+      history: { replaceState: (_s: unknown, _t: string, u: string) => (url = u) },
+    };
+    writeUrlSettings({ ...base, category });
+    return new URLSearchParams(url.replace(/^\//, ""));
+  }
+
+  it("値の無い category= は未設定として読む", () => {
+    withUrl("?category=");
+    expect(readUrlSettings().category).toBe(NO_CATEGORY);
+  });
+
+  it("名前があればそのカテゴリ、無ければ未指定", () => {
+    withUrl("?category=%E9%81%8B%E7%94%A8");
+    expect(readUrlSettings().category).toBe("運用");
+    withUrl("?view=today");
+    expect(readUrlSettings().category).toBeUndefined();
+  });
+
+  it("未設定は値の無い category= で書き、全カテゴリは書かない", () => {
+    expect(written(NO_CATEGORY).get("category")).toBe("");
+    expect(written("").has("category")).toBe(false);
+    expect(written("運用").get("category")).toBe("運用");
   });
 });
