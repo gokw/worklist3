@@ -57,6 +57,43 @@ export function matchCategories(categories: string[], query: string): string[] {
   return [...head, ...rest];
 }
 
+/**
+ * カテゴリ絞り込みで「カテゴリ未設定」を表す内部値(Issue #137)。
+ * 空文字は「全カテゴリ(絞り込まない)」に使っているので別の値が要る。
+ * 制御文字なので、入力されたカテゴリ名とはぶつからない。
+ */
+export const NO_CATEGORY = "\u0000";
+/** 「カテゴリ未設定」の見せ方 */
+export const NO_CATEGORY_LABEL = "(未設定)";
+
+/** 絞り込みの値を画面に出す文字にする(未設定だけ言い換える) */
+export function categoryFilterLabel(filter: string): string {
+  return filter === NO_CATEGORY ? NO_CATEGORY_LABEL : filter;
+}
+
+/** タスクのカテゴリが絞り込みに合うか。"" は全カテゴリ、NO_CATEGORY は空のものだけ */
+export function matchesCategoryFilter(category: string, filter: string): boolean {
+  if (filter === "") return true;
+  if (filter === NO_CATEGORY) return !category;
+  return category === filter;
+}
+
+/**
+ * カテゴリ絞り込みの候補(Issue #137)。matchCategories の結果の先頭に「未設定」を足す。
+ * 「未設定」は、未設定のタスクがあるときだけ出す。打っている間は表示名
+ * 「(未設定)」との途中一致で出し入れする(「未設定」「未」でも出る)。
+ */
+export function categoryFilterOptions(
+  categories: string[],
+  hasUncategorized: boolean,
+  query: string
+): string[] {
+  const named = matchCategories(categories, query);
+  if (!hasUncategorized) return named;
+  const q = query.trim().toLowerCase();
+  return q === "" || NO_CATEGORY_LABEL.includes(q) ? [NO_CATEGORY, ...named] : named;
+}
+
 export function newId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }

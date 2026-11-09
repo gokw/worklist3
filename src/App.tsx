@@ -9,6 +9,7 @@ import { addToDate, formatDateJa, formatMin, nowHHMM, todayStr } from "./lib/dat
 import {
   actMin,
   collectCategories,
+  matchesCategoryFilter,
   copyTask,
   createTask,
   createWaitCopy,
@@ -835,7 +836,7 @@ export default function App() {
     // 3. 予定のみ(開始予定時刻が入っているものだけ)
     if (plannedOnly) list = list.filter((t) => !!t.planStart);
     // 4. カテゴリ
-    if (categoryFilter) list = list.filter((t) => t.category === categoryFilter);
+    if (categoryFilter) list = list.filter((t) => matchesCategoryFilter(t.category, categoryFilter));
     // 5. タスク名
     if (titleMatcher) list = list.filter((t) => titleMatcher(t.title));
     // 日付移動(Ctrl+H/K/L)で日付を動かしている間は、見た目の並びを「ずらす前の順」に固定する(Issue #14)。
@@ -885,7 +886,7 @@ export default function App() {
       if (!matchesPeriod(t)) setViewMode("everything"); // 期間から外れているなら全期間へ
       if (doneFilter === "onlyDone" && !t.actEnd) setDoneFilter("all");
       if (plannedOnly && !t.planStart) setPlannedOnly(false);
-      if (categoryFilter && t.category !== categoryFilter) setCategoryFilter("");
+      if (!matchesCategoryFilter(t.category, categoryFilter)) setCategoryFilter("");
       if (titleMatcher && !titleMatcher(t.title)) setTitleFilter("");
       setFocusedId(t.id);
       setAnchorId(t.id);
@@ -939,6 +940,7 @@ export default function App() {
   );
 
   const categories = useMemo(() => collectCategories(tasks), [tasks]);
+  const hasUncategorized = useMemo(() => tasks.some((t) => !t.category), [tasks]);
 
   // 集計は現在表示中のタスク(ビュー・モード・絞込を反映)を対象にする
   const totals = useMemo(
@@ -2190,6 +2192,7 @@ export default function App() {
         onCustomToChange={setCustomTo}
         categories={categories}
         categoryFilter={categoryFilter}
+        hasUncategorized={hasUncategorized}
         onCategoryFilterChange={setCategoryFilter}
         doneFilter={doneFilter}
         onDoneFilterChange={setDoneFilter}

@@ -12,6 +12,10 @@ import {
   generateNextOccurrence,
   interruptTask,
   matchCategories,
+  NO_CATEGORY,
+  categoryFilterLabel,
+  categoryFilterOptions,
+  matchesCategoryFilter,
   postponeTask,
   randomStartCandidates,
   toggleWaiting,
@@ -487,5 +491,38 @@ describe("matchCategories(カテゴリ絞り込みの候補 #133)", () => {
 
   it("一致が無ければ空", () => {
     expect(matchCategories(cats, "存在しない")).toEqual([]);
+  });
+});
+
+describe("カテゴリ未設定の絞り込み(#137)", () => {
+  const cats = ["運用業務", "稟議チェック"];
+
+  it("空は全カテゴリ、NO_CATEGORY は空のものだけ、それ以外は一致するものだけ", () => {
+    expect(matchesCategoryFilter("", "")).toBe(true);
+    expect(matchesCategoryFilter("運用業務", "")).toBe(true);
+    expect(matchesCategoryFilter("", NO_CATEGORY)).toBe(true);
+    expect(matchesCategoryFilter("運用業務", NO_CATEGORY)).toBe(false);
+    expect(matchesCategoryFilter("運用業務", "運用業務")).toBe(true);
+    expect(matchesCategoryFilter("", "運用業務")).toBe(false);
+  });
+
+  it("未設定のタスクがあれば、候補の先頭に未設定を出す", () => {
+    expect(categoryFilterOptions(cats, true, "")).toEqual([NO_CATEGORY, ...cats]);
+  });
+
+  it("未設定のタスクが無ければ出さない", () => {
+    expect(categoryFilterOptions(cats, false, "")).toEqual(cats);
+  });
+
+  it("打っている間は「(未設定)」との途中一致で出し入れする", () => {
+    expect(categoryFilterOptions(cats, true, "未設定")).toEqual([NO_CATEGORY]);
+    expect(categoryFilterOptions(cats, true, "未")).toEqual([NO_CATEGORY]);
+    expect(categoryFilterOptions(cats, true, "運用")).toEqual(["運用業務"]);
+  });
+
+  it("表示名は未設定だけ言い換える", () => {
+    expect(categoryFilterLabel(NO_CATEGORY)).toBe("(未設定)");
+    expect(categoryFilterLabel("運用業務")).toBe("運用業務");
+    expect(categoryFilterLabel("")).toBe("");
   });
 });

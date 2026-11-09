@@ -95,6 +95,8 @@ interface Props {
   onCustomToChange: (d: string) => void;
   categories: string[];
   categoryFilter: string;
+  /** カテゴリ未設定のタスクがあるか(絞り込み候補に「(未設定)」を出す。#137) */
+  hasUncategorized: boolean;
   onCategoryFilterChange: (c: string) => void;
   doneFilter: DoneFilter;
   onDoneFilterChange: (d: DoneFilter) => void;
@@ -1073,6 +1075,7 @@ export default function Toolbar(p: Props) {
         <CategoryFilter
           categories={p.categories}
           value={p.categoryFilter}
+          hasUncategorized={p.hasUncategorized}
           onChange={p.onCategoryFilterChange}
         />
 
